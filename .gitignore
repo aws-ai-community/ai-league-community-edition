@@ -1,0 +1,37 @@
+# Node.js
+node_modules/
+frontend/dist/
+dist-node/
+.cache/
+
+# CDK
+cdk.out/
+cdk.context.json
+
+# IDE and tools
+.kiro/
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TypeScript
+*.tsbuildinfo
+
+# Vite config build artifacts
+frontend/vite.config.d.ts
+frontend/vite.config.d.ts.map
+
+# Test coverage
+coverage/
+
+# Logs
+*.log

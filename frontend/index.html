@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AWS AI League - Community Edition</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--color-background-layout-main, #0f1b2a);
+      }
+      /* Style the AppLayout navigation toggle (burger) button blue */
+      [class*="app-layout"] [class*="toggle"] button,
+      [class*="navigation"] [class*="toggle"] button {
+        color: #539fe5 !important;
+      }
+      [class*="app-layout"] [class*="toggle"] button svg {
+        fill: #539fe5 !important;
+        stroke: #539fe5 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Polyfill for amazon-cognito-identity-js which references Node.js globals
+      if (typeof global === 'undefined') { window.global = window; }
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
