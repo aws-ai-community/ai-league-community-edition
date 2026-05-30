@@ -64,6 +64,15 @@ export class CdkStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // DynamoDB Maps table
+    const mapsTable = new dynamodb.Table(this, 'MapsTable', {
+      tableName: 'ai-league-community-maps',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'mapId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     // Profile API Lambda function (TypeScript bundled with esbuild)
     const profileLambda = new lambdaNodejs.NodejsFunction(this, 'ProfileApiLambda', {
       functionName: 'ai-league-community-profile-api',
@@ -122,6 +131,57 @@ export class CdkStack extends cdk.Stack {
     });
 
     profileResource.addMethod('PUT', profileIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    // Maps API Lambda function (TypeScript bundled with esbuild)
+    const mapsLambda = new lambdaNodejs.NodejsFunction(this, 'MapsApiLambda', {
+      functionName: 'ai-league-community-maps-api',
+      runtime: lambda.Runtime.NODEJS_22_X,
+      entry: path.join(__dirname, '../../lambda/maps-api/index.ts'),
+      handler: 'handler',
+      environment: {
+        MAPS_TABLE: mapsTable.tableName,
+      },
+      timeout: cdk.Duration.seconds(30),
+      bundling: {
+        minify: true,
+        sourceMap: true,
+      },
+    });
+
+    // Grant Maps Lambda read/write access to the Maps table
+    mapsTable.grantReadWriteData(mapsLambda);
+
+    // /v1/maps resource with GET and POST methods
+    const mapsResource = v1Resource.addResource('maps');
+    const mapsIntegration = new apigateway.LambdaIntegration(mapsLambda);
+
+    mapsResource.addMethod('GET', mapsIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    mapsResource.addMethod('POST', mapsIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    // /v1/maps/{mapId} resource with GET, PUT, DELETE methods
+    const mapIdResource = mapsResource.addResource('{mapId}');
+
+    mapIdResource.addMethod('GET', mapsIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    mapIdResource.addMethod('PUT', mapsIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+    });
+
+    mapIdResource.addMethod('DELETE', mapsIntegration, {
       authorizer: cognitoAuthorizer,
       authorizationType: apigateway.AuthorizationType.COGNITO,
     });

@@ -47,7 +47,9 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
   return { DynamoDBDocumentClient, GetCommand, UpdateCommand };
 });
 
-vi.stubEnv('USER_PROFILES_TABLE', 'TestUserProfiles');
+vi.hoisted(() => {
+  process.env.USER_PROFILES_TABLE = 'TestUserProfiles';
+});
 
 import { handler, AVATAR_OPTIONS } from '../../lambda/profile-api/index.js';
 import type { APIGatewayProxyEvent } from 'aws-lambda';

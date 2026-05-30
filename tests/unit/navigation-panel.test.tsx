@@ -33,8 +33,9 @@ describe('NavigationPanel', () => {
     expect(screen.getByText('AWS AI League - Community Edition')).toBeInTheDocument();
   });
 
-  it('renders all 7 links in correct order with correct URLs', () => {
+  it('renders all links in correct order with correct URLs', () => {
     const expectedLinks = [
+      { text: 'Map Builder', href: '/map-builder' },
       { text: 'Agentic Workshop', href: 'https://catalog.us-east-1.prod.workshops.aws/workshops/0c1f072b-ebd1-4d8d-9340-dd47479481c0/en-US/introduction' },
       { text: 'Builder Center', href: 'https://builder.aws.com/connect/space/7e5f51ef-0919-32da-aaa7-ddf263651d69/aws-ai-league' },
       { text: 'Builder Center (Community)', href: 'https://builder.aws.com/connect/space/7148b02a-ef8c-3a67-97c9-53be6bd54999/ai-community' },
@@ -47,7 +48,7 @@ describe('NavigationPanel', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(7);
+    expect(links).toHaveLength(8);
 
     links.forEach((link, index) => {
       expect(link).toHaveTextContent(expectedLinks[index].text);
@@ -55,32 +56,40 @@ describe('NavigationPanel', () => {
     });
   });
 
-  it('all links have external attribute for new tab behavior', () => {
+  it('external links have external attribute for new tab behavior', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(7);
+    // Filter to only external links (skip Map Builder which is internal)
+    const externalLinks = links.filter((link) => link.getAttribute('data-external') === 'true');
+    expect(externalLinks).toHaveLength(7);
 
-    links.forEach((link) => {
+    externalLinks.forEach((link) => {
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('data-external', 'true');
     });
   });
 
   describe('navigationItems data structure', () => {
-    it('contains exactly 7 items', () => {
-      expect(navigationItems).toHaveLength(7);
+    it('contains exactly 9 items (1 internal link + 1 divider + 7 external links)', () => {
+      expect(navigationItems).toHaveLength(9);
     });
 
-    it('all items have type "link" and external true', () => {
-      navigationItems.forEach((item) => {
-        expect(item).toHaveProperty('type', 'link');
-        expect(item).toHaveProperty('external', true);
-      });
+    it('all link items have correct type', () => {
+      const linkItems = navigationItems.filter((item) => item.type === 'link');
+      expect(linkItems).toHaveLength(8);
+    });
+
+    it('external link items have external true', () => {
+      const externalItems = navigationItems.filter(
+        (item) => item.type === 'link' && 'external' in item && item.external === true
+      );
+      expect(externalItems).toHaveLength(7);
     });
 
     it('items are in the correct order with correct hrefs', () => {
       const expectedOrder = [
+        'Map Builder',
         'Agentic Workshop',
         'Builder Center',
         'Builder Center (Community)',
@@ -90,7 +99,8 @@ describe('NavigationPanel', () => {
         'Community Discord',
       ];
 
-      navigationItems.forEach((item, index) => {
+      const linkItems = navigationItems.filter((item) => item.type === 'link');
+      linkItems.forEach((item, index) => {
         expect((item as { text: string }).text).toBe(expectedOrder[index]);
       });
     });

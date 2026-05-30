@@ -1,0 +1,517 @@
+import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  QueryCommand,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+  DeleteCommand,
+} from "@aws-sdk/lib-dynamodb";
+
+const ddbClient = new DynamoDBClient({});
+const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+const TABLE_NAME = process.env.MAPS_TABLE;
+if (!TABLE_NAME) {
+  throw new Error("MAPS_TABLE environment variable is required");
+}
+
+const VALID_TILE_KEYS = new Set([
+  "normal",
+  "wall",
+  "start",
+  "treasure",
+  "c1",
+  "c2",
+  "c3",
+  "c4",
+  "c5",
+  "c6",
+  "c7",
+  "c8",
+  "c17",
+  "c18",
+  "c30",
+  "c31",
+  "c32",
+  "c33",
+  "c40",
+  "c41",
+  "c42",
+  "c43",
+]);
+
+const headers = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type,Authorization",
+};
+
+function getUserId(event: APIGatewayProxyEvent): string | null {
+  const claims = event.requestContext.authorizer?.claims;
+  if (!claims || !claims.sub) {
+    return null;
+  }
+  return claims.sub as string;
+}
+
+interface ValidationError {
+  error: string;
+}
+
+function validateMapBody(body: {
+  name?: string;
+  width?: number;
+  height?: number;
+  grid?: string[][];
+}): ValidationError | null {
+  // Validate name
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || body.name.length < 1 || body.name.length > 100) {
+      return { error: "Map name must be between 1 and 100 characters" };
+    }
+  }
+
+  // Validate dimensions
+  if (body.width !== undefined) {
+    if (!Number.isInteger(body.width) || body.width < 2 || body.width > 12) {
+      return { error: "Grid dimensions must be between 2 and 12" };
+    }
+  }
+  if (body.height !== undefined) {
+    if (!Number.isInteger(body.height) || body.height < 2 || body.height > 12) {
+      return { error: "Grid dimensions must be between 2 and 12" };
+    }
+  }
+
+  // Validate grid
+  if (body.grid !== undefined) {
+    const width = body.width;
+    const height = body.height;
+
+    if (!Array.isArray(body.grid)) {
+      return { error: "Grid must be an array" };
+    }
+
+    if (height !== undefined && body.grid.length !== height) {
+      return { error: "Grid row count must match height" };
+    }
+
+    let startCount = 0;
+    let treasureCount = 0;
+
+    for (const row of body.grid) {
+      if (!Array.isArray(row)) {
+        return { error: "Each grid row must be an array" };
+      }
+      if (width !== undefined && row.length !== width) {
+        return { error: "Each grid row length must match width" };
+      }
+      for (const cell of row) {
+        if (!VALID_TILE_KEYS.has(cell)) {
+          return { error: `Invalid tile key: ${cell}` };
+        }
+        if (cell === "start") startCount++;
+        if (cell === "treasure") treasureCount++;
+      }
+    }
+
+    if (startCount !== 1) {
+      return { error: "Grid must contain exactly one start tile" };
+    }
+    if (treasureCount !== 1) {
+      return { error: "Grid must contain exactly one treasure tile" };
+    }
+  }
+
+  return null;
+}
+
+async function handleList(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const userId = getUserId(event);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
+  try {
+    const result = await docClient.send(
+      new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId },
+        ProjectionExpression: "mapId, #n, width, height, updatedAt",
+        ExpressionAttributeNames: { "#n": "name" },
+      })
+    );
+
+    const maps = (result.Items || []).map((item) => ({
+      mapId: item.mapId,
+      name: item.name,
+      width: item.width,
+      height: item.height,
+      updatedAt: item.updatedAt,
+    }));
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ maps }),
+    };
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+}
+
+async function handleGet(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const userId = getUserId(event);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
+  const mapId = event.pathParameters?.mapId;
+  if (!mapId) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Missing mapId" }),
+    };
+  }
+
+  try {
+    const result = await docClient.send(
+      new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { userId, mapId },
+      })
+    );
+
+    if (!result.Item) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: "Map not found" }),
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify(result.Item),
+    };
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+}
+
+async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const userId = getUserId(event);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
+  let body: { name?: string; width?: number; height?: number; grid?: string[][] };
+  try {
+    body = JSON.parse(event.body || "{}");
+  } catch {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Invalid request body" }),
+    };
+  }
+
+  // Require all fields for create
+  if (!body.name || body.width === undefined || body.height === undefined || !body.grid) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Missing required fields: name, width, height, grid" }),
+    };
+  }
+
+  const validationError = validateMapBody(body);
+  if (validationError) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify(validationError),
+    };
+  }
+
+  const now = new Date().toISOString();
+  const mapId = crypto.randomUUID();
+
+  const item = {
+    userId,
+    mapId,
+    name: body.name,
+    width: body.width,
+    height: body.height,
+    grid: body.grid,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    await docClient.send(
+      new PutCommand({
+        TableName: TABLE_NAME,
+        Item: item,
+      })
+    );
+
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify(item),
+    };
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+}
+
+async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const userId = getUserId(event);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
+  const mapId = event.pathParameters?.mapId;
+  if (!mapId) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Missing mapId" }),
+    };
+  }
+
+  let body: { name?: string; width?: number; height?: number; grid?: string[][] };
+  try {
+    body = JSON.parse(event.body || "{}");
+  } catch {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Invalid request body" }),
+    };
+  }
+
+  const validationError = validateMapBody(body);
+  if (validationError) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify(validationError),
+    };
+  }
+
+  // Verify the map belongs to the user
+  try {
+    const existing = await docClient.send(
+      new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { userId, mapId },
+      })
+    );
+
+    if (!existing.Item) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: "Map not found" }),
+      };
+    }
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+
+  // Build update expression
+  const updateExpressionParts: string[] = [];
+  const expressionAttributeNames: Record<string, string> = {};
+  const expressionAttributeValues: Record<string, unknown> = {};
+
+  if (body.name !== undefined) {
+    updateExpressionParts.push("#n = :name");
+    expressionAttributeNames["#n"] = "name";
+    expressionAttributeValues[":name"] = body.name;
+  }
+  if (body.width !== undefined) {
+    updateExpressionParts.push("#w = :width");
+    expressionAttributeNames["#w"] = "width";
+    expressionAttributeValues[":width"] = body.width;
+  }
+  if (body.height !== undefined) {
+    updateExpressionParts.push("#h = :height");
+    expressionAttributeNames["#h"] = "height";
+    expressionAttributeValues[":height"] = body.height;
+  }
+  if (body.grid !== undefined) {
+    updateExpressionParts.push("#g = :grid");
+    expressionAttributeNames["#g"] = "grid";
+    expressionAttributeValues[":grid"] = body.grid;
+  }
+
+  if (updateExpressionParts.length === 0) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "No fields to update" }),
+    };
+  }
+
+  // Add updatedAt timestamp
+  const now = new Date().toISOString();
+  updateExpressionParts.push("#u = :updatedAt");
+  expressionAttributeNames["#u"] = "updatedAt";
+  expressionAttributeValues[":updatedAt"] = now;
+
+  try {
+    const result = await docClient.send(
+      new UpdateCommand({
+        TableName: TABLE_NAME,
+        Key: { userId, mapId },
+        UpdateExpression: "SET " + updateExpressionParts.join(", "),
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: "ALL_NEW",
+      })
+    );
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify(result.Attributes),
+    };
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+}
+
+async function handleDelete(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+  const userId = getUserId(event);
+  if (!userId) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ error: "Unauthorized" }),
+    };
+  }
+
+  const mapId = event.pathParameters?.mapId;
+  if (!mapId) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Missing mapId" }),
+    };
+  }
+
+  // Verify the map belongs to the user before deleting
+  try {
+    const existing = await docClient.send(
+      new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { userId, mapId },
+      })
+    );
+
+    if (!existing.Item) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: "Map not found" }),
+      };
+    }
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+
+  try {
+    await docClient.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: { userId, mapId },
+      })
+    );
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ message: "Map deleted" }),
+    };
+  } catch {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Internal server error" }),
+    };
+  }
+}
+
+export const handler = async (
+  event: APIGatewayProxyEvent
+): Promise<APIGatewayProxyResult> => {
+  const method = event.httpMethod;
+  const mapId = event.pathParameters?.mapId;
+
+  switch (method) {
+    case "GET":
+      if (mapId) {
+        return handleGet(event);
+      }
+      return handleList(event);
+    case "POST":
+      return handleCreate(event);
+    case "PUT":
+      return handleUpdate(event);
+    case "DELETE":
+      return handleDelete(event);
+    default:
+      return {
+        statusCode: 405,
+        headers,
+        body: JSON.stringify({ error: "Method not allowed" }),
+      };
+  }
+};
