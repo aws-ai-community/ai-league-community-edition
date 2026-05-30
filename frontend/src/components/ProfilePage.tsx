@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Box from '@cloudscape-design/components/box';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
@@ -39,10 +39,12 @@ export function ProfilePage(_props: ProfilePageProps) {
   const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 
   // Initialize display name from profile once loaded
-  if (profile && !displayNameInitialized) {
-    setDisplayName(profile.displayName ?? '');
-    setDisplayNameInitialized(true);
-  }
+  useEffect(() => {
+    if (profile && !displayNameInitialized) {
+      setDisplayName(profile.displayName ?? '');
+      setDisplayNameInitialized(true);
+    }
+  }, [profile, displayNameInitialized]);
 
   // Avatar selection handler
   const handleAvatarSelect = useCallback(async (avatarId: AvatarId) => {

@@ -5,7 +5,10 @@ import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-
 const ddbClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-const TABLE_NAME = process.env.USER_PROFILES_TABLE!;
+const TABLE_NAME = process.env.USER_PROFILES_TABLE;
+if (!TABLE_NAME) {
+  throw new Error('USER_PROFILES_TABLE environment variable is required');
+}
 
 export const AVATAR_OPTIONS = [
   'avatar-robot-1', 'avatar-robot-2', 'avatar-robot-3',

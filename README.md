@@ -116,7 +116,7 @@ ai-league-community-edition/
 CDK_DEFAULT_REGION=<region> npx cdk destroy
 ```
 
-This removes all deployed resources. Note: the admin user in Cognito is retained on stack deletion (by design).
+This removes all deployed resources including the Cognito User Pool and all user accounts.
 
 ## License
 

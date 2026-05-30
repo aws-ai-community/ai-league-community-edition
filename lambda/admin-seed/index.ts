@@ -75,7 +75,8 @@ async function adminUserExists(): Promise<boolean> {
     );
     return true;
   } catch (error: unknown) {
-    if (error instanceof UserNotFoundException) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'UserNotFoundException') {
       return false;
     }
     throw error;
@@ -96,7 +97,8 @@ async function ensureGroupExists(): Promise<void> {
       })
     );
   } catch (error: unknown) {
-    if (error instanceof GroupExistsException) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'GroupExistsException') {
       // Group already exists, nothing to do
       return;
     }

@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-The app runs at `http://localhost:5173` with hot reload.
+The app runs at `http://localhost:3000` with hot reload.
 
 ### Running Tests
 
