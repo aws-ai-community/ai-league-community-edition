@@ -68,7 +68,8 @@ function validateMapBody(body: {
 }): ValidationError | null {
   // Validate name
   if (body.name !== undefined) {
-    if (typeof body.name !== "string" || body.name.length < 1 || body.name.length > 100) {
+    const trimmedName = typeof body.name === 'string' ? body.name.trim() : '';
+    if (trimmedName.length < 1 || trimmedName.length > 100) {
       return { error: "Map name must be between 1 and 100 characters" };
     }
   }
@@ -87,14 +88,25 @@ function validateMapBody(body: {
 
   // Validate grid
   if (body.grid !== undefined) {
-    const width = body.width;
-    const height = body.height;
-
     if (!Array.isArray(body.grid)) {
       return { error: "Grid must be an array" };
     }
 
-    if (height !== undefined && body.grid.length !== height) {
+    // Infer dimensions from grid if not explicitly provided
+    const inferredHeight = body.grid.length;
+    const inferredWidth = inferredHeight > 0 && Array.isArray(body.grid[0]) ? body.grid[0].length : 0;
+    const effectiveHeight = body.height ?? inferredHeight;
+    const effectiveWidth = body.width ?? inferredWidth;
+
+    // Validate inferred/provided dimensions are within range
+    if (effectiveHeight < 2 || effectiveHeight > 12) {
+      return { error: "Grid dimensions must be between 2 and 12" };
+    }
+    if (effectiveWidth < 2 || effectiveWidth > 12) {
+      return { error: "Grid dimensions must be between 2 and 12" };
+    }
+
+    if (body.grid.length !== effectiveHeight) {
       return { error: "Grid row count must match height" };
     }
 
@@ -105,7 +117,7 @@ function validateMapBody(body: {
       if (!Array.isArray(row)) {
         return { error: "Each grid row must be an array" };
       }
-      if (width !== undefined && row.length !== width) {
+      if (row.length !== effectiveWidth) {
         return { error: "Each grid row length must match width" };
       }
       for (const cell of row) {
@@ -241,6 +253,11 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
+  // Trim name
+  if (body.name && typeof body.name === 'string') {
+    body.name = body.name.trim();
+  }
+
   // Require all fields for create
   if (!body.name || body.width === undefined || body.height === undefined || !body.grid) {
     return {
@@ -323,6 +340,20 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
       headers,
       body: JSON.stringify({ error: "Invalid request body" }),
     };
+  }
+
+  // If width or height is being changed, grid must also be provided
+  if ((body.width !== undefined || body.height !== undefined) && body.grid === undefined) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "Grid must be provided when changing dimensions" }),
+    };
+  }
+
+  // Trim name if provided
+  if (body.name !== undefined && typeof body.name === 'string') {
+    body.name = body.name.trim();
   }
 
   const validationError = validateMapBody(body);

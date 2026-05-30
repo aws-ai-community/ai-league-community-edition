@@ -36,6 +36,10 @@ export function TilePalette({ selectedTile, onTileSelect }: TilePaletteProps) {
               {tiles.map((tileKey) => {
                 const metadata = TILE_METADATA[tileKey];
                 const isSelected = selectedTile === tileKey;
+                const tooltipLines = [metadata.name, metadata.description];
+                if (metadata.points !== undefined) tooltipLines.push(`Points: ${metadata.points}`);
+                if (metadata.damage !== undefined && metadata.damage > 0) tooltipLines.push(`Damage: -${metadata.damage} life`);
+                if (metadata.requirements) tooltipLines.push(metadata.requirements);
                 return (
                   <div
                     key={tileKey}
@@ -52,6 +56,7 @@ export function TilePalette({ selectedTile, onTileSelect }: TilePaletteProps) {
                     }}
                     aria-label={`${metadata.name} tile`}
                     aria-pressed={isSelected}
+                    title={tooltipLines.join('\n')}
                     style={{
                       display: 'flex',
                       flexDirection: 'column',

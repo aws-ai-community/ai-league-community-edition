@@ -416,4 +416,77 @@ describe('Maps API Handler', () => {
       expect(body.error).toBe('Unauthorized');
     });
   });
+
+  describe('PUT /v1/maps/{mapId} - update map', () => {
+    it('updates an existing map successfully', async () => {
+      // First call (Get) returns existing item, second call (Update) returns updated
+      mockSend
+        .mockResolvedValueOnce({
+          Item: { userId: 'user-123-abc', mapId: 'map-1', name: 'Old Name' },
+        })
+        .mockResolvedValueOnce({
+          Attributes: {
+            userId: 'user-123-abc',
+            mapId: 'map-1',
+            name: 'New Name',
+            width: 3,
+            height: 3,
+            grid: VALID_GRID,
+            updatedAt: '2024-01-02T00:00:00.000Z',
+          },
+        });
+
+      const event = createEvent({
+        httpMethod: 'PUT',
+        pathParameters: { mapId: 'map-1' },
+        body: JSON.stringify({ name: 'New Name' }),
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(200);
+      const body = JSON.parse(result.body);
+      expect(body.name).toBe('New Name');
+    });
+
+    it('returns 404 for non-existent map', async () => {
+      mockSend.mockResolvedValue({ Item: undefined });
+
+      const event = createEvent({
+        httpMethod: 'PUT',
+        pathParameters: { mapId: 'non-existent' },
+        body: JSON.stringify({ name: 'Updated' }),
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(404);
+      const body = JSON.parse(result.body);
+      expect(body.error).toBe('Map not found');
+    });
+
+    it('rejects dimension change without grid', async () => {
+      const event = createEvent({
+        httpMethod: 'PUT',
+        pathParameters: { mapId: 'map-1' },
+        body: JSON.stringify({ width: 5 }),
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(400);
+      const body = JSON.parse(result.body);
+      expect(body.error).toContain('Grid must be provided');
+    });
+
+    it('returns 401 for missing auth', async () => {
+      const event = createNoAuthEvent({
+        httpMethod: 'PUT',
+        pathParameters: { mapId: 'map-1' },
+        body: JSON.stringify({ name: 'Test' }),
+      });
+      const result = await handler(event);
+
+      expect(result.statusCode).toBe(401);
+      const body = JSON.parse(result.body);
+      expect(body.error).toBe('Unauthorized');
+    });
+  });
 });

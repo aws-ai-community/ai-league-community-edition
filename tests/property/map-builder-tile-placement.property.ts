@@ -20,10 +20,12 @@ describe('Feature: map-builder, Property 3: Tile placement updates exactly one c
         fc.integer({ min: 2, max: 12 }),
         fc.integer({ min: 2, max: 12 }),
         fc.constantFrom(...ALL_TILE_KEYS),
-        (width, height, tileKey) => {
+        fc.integer({ min: 0, max: 11 }),
+        fc.integer({ min: 0, max: 11 }),
+        (width, height, tileKey, rowSeed, colSeed) => {
           // Generate valid row/col within bounds
-          const row = Math.floor(Math.random() * height);
-          const col = Math.floor(Math.random() * width);
+          const row = rowSeed % height;
+          const col = colSeed % width;
 
           const grid = createGrid(width, height);
           const newGrid = placeTile(grid, row, col, tileKey);
@@ -51,9 +53,11 @@ describe('Feature: map-builder, Property 3: Tile placement updates exactly one c
         fc.integer({ min: 2, max: 12 }),
         fc.integer({ min: 2, max: 12 }),
         fc.constantFrom(...ALL_TILE_KEYS),
-        (width, height, tileKey) => {
-          const row = Math.floor(Math.random() * height);
-          const col = Math.floor(Math.random() * width);
+        fc.integer({ min: 0, max: 11 }),
+        fc.integer({ min: 0, max: 11 }),
+        (width, height, tileKey, rowSeed, colSeed) => {
+          const row = rowSeed % height;
+          const col = colSeed % width;
 
           const grid = createGrid(width, height);
           // Deep copy for comparison
@@ -80,9 +84,11 @@ describe('Feature: map-builder, Property 3: Tile placement updates exactly one c
         fc.integer({ min: 2, max: 12 }),
         fc.constantFrom(...ALL_TILE_KEYS),
         fc.constantFrom(...ALL_TILE_KEYS),
-        (width, height, initialTile, newTile) => {
-          const row = Math.floor(Math.random() * height);
-          const col = Math.floor(Math.random() * width);
+        fc.integer({ min: 0, max: 11 }),
+        fc.integer({ min: 0, max: 11 }),
+        (width, height, initialTile, newTile, rowSeed, colSeed) => {
+          const row = rowSeed % height;
+          const col = colSeed % width;
 
           // Start with a grid that has a different tile placed
           const grid = createGrid(width, height);

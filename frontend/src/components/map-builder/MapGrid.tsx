@@ -36,9 +36,9 @@ export function MapGrid({ grid, onCellDrop, onCellClick, onCellRightClick }: Map
     (e: DragEvent<HTMLDivElement>, row: number, col: number) => {
       e.preventDefault();
       setDragOverCell(null);
-      const tileKey = e.dataTransfer.getData('text/plain') as TileKey;
-      if (tileKey) {
-        onCellDrop(row, col, tileKey);
+      const raw = e.dataTransfer.getData('text/plain');
+      if (raw && raw in TILE_SPRITES) {
+        onCellDrop(row, col, raw as TileKey);
       }
     },
     [onCellDrop]
