@@ -1,0 +1,28 @@
+{
+  "name": "aws-ai-league-community-edition",
+  "version": "1.0.0",
+  "description": "AWS AI League Community Edition - Full-stack web application for AWS AI League participants",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "infrastructure",
+    "lambda"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "vitest run",
+    "deploy": "cd infrastructure && npx cdk deploy --all",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.2",
+    "fast-check": "4.8.0",
+    "jsdom": "29.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
