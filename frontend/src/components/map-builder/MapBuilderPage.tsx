@@ -5,6 +5,7 @@ import { MapProvider, useMap } from '../../contexts/MapContext';
 import MapToolbar from './MapToolbar';
 import { TilePalette } from './TilePalette';
 import { MapGrid } from './MapGrid';
+import MapSettings from './MapSettings';
 
 function MapBuilderContent() {
   const {
@@ -90,6 +91,17 @@ function MapBuilderContent() {
             onCellClick={handleCellClick}
             onCellRightClick={handleCellRightClick}
           />
+        </div>
+
+        <div
+          style={{
+            width: '280px',
+            flexShrink: 0,
+            maxHeight: 'calc(100vh - 300px)',
+            overflowY: 'auto',
+          }}
+        >
+          <MapSettings />
         </div>
       </div>
     </SpaceBetween>

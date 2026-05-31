@@ -65,6 +65,9 @@ function validateMapBody(body: {
   width?: number;
   height?: number;
   grid?: string[][];
+  startingLives?: number;
+  timeLimit?: number;
+  tileOverrides?: Record<string, { points: number; damage: number }>;
 }): ValidationError | null {
   // Validate name
   if (body.name !== undefined) {
@@ -134,6 +137,42 @@ function validateMapBody(body: {
     }
     if (treasureCount !== 1) {
       return { error: "Grid must contain exactly one treasure tile" };
+    }
+  }
+
+  // Validate startingLives
+  if (body.startingLives !== undefined) {
+    if (!Number.isInteger(body.startingLives) || body.startingLives < 1) {
+      return { error: "startingLives must be an integer greater than or equal to 1" };
+    }
+  }
+
+  // Validate timeLimit
+  if (body.timeLimit !== undefined) {
+    if (!Number.isInteger(body.timeLimit) || body.timeLimit < 1) {
+      return { error: "timeLimit must be an integer greater than or equal to 1" };
+    }
+  }
+
+  // Validate tileOverrides
+  if (body.tileOverrides !== undefined) {
+    if (typeof body.tileOverrides !== "object" || body.tileOverrides === null || Array.isArray(body.tileOverrides)) {
+      return { error: "tileOverrides must be an object" };
+    }
+    for (const [key, value] of Object.entries(body.tileOverrides)) {
+      if (!VALID_TILE_KEYS.has(key)) {
+        return { error: `Invalid tile key in tileOverrides: ${key}` };
+      }
+      if (typeof value !== "object" || value === null) {
+        return { error: `tileOverrides entry for ${key} must be an object with points and damage` };
+      }
+      const entry = value as { points?: number; damage?: number };
+      if (entry.points === undefined || !Number.isInteger(entry.points) || entry.points < 0) {
+        return { error: `tileOverrides entry for ${key} must have integer points >= 0` };
+      }
+      if (entry.damage === undefined || !Number.isInteger(entry.damage) || entry.damage < 0) {
+        return { error: `tileOverrides entry for ${key} must have integer damage >= 0` };
+      }
     }
   }
 
@@ -242,7 +281,7 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
-  let body: { name?: string; width?: number; height?: number; grid?: string[][] };
+  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }> };
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
@@ -279,7 +318,7 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   const now = new Date().toISOString();
   const mapId = crypto.randomUUID();
 
-  const item = {
+  const item: Record<string, unknown> = {
     userId,
     mapId,
     name: body.name,
@@ -289,6 +328,16 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     createdAt: now,
     updatedAt: now,
   };
+
+  if (body.startingLives !== undefined) {
+    item.startingLives = body.startingLives;
+  }
+  if (body.timeLimit !== undefined) {
+    item.timeLimit = body.timeLimit;
+  }
+  if (body.tileOverrides !== undefined) {
+    item.tileOverrides = body.tileOverrides;
+  }
 
   try {
     await docClient.send(
@@ -331,7 +380,7 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
-  let body: { name?: string; width?: number; height?: number; grid?: string[][] };
+  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }> };
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
@@ -413,6 +462,21 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     updateExpressionParts.push("#g = :grid");
     expressionAttributeNames["#g"] = "grid";
     expressionAttributeValues[":grid"] = body.grid;
+  }
+  if (body.startingLives !== undefined) {
+    updateExpressionParts.push("#sl = :startingLives");
+    expressionAttributeNames["#sl"] = "startingLives";
+    expressionAttributeValues[":startingLives"] = body.startingLives;
+  }
+  if (body.timeLimit !== undefined) {
+    updateExpressionParts.push("#tl = :timeLimit");
+    expressionAttributeNames["#tl"] = "timeLimit";
+    expressionAttributeValues[":timeLimit"] = body.timeLimit;
+  }
+  if (body.tileOverrides !== undefined) {
+    updateExpressionParts.push("#to = :tileOverrides");
+    expressionAttributeNames["#to"] = "tileOverrides";
+    expressionAttributeValues[":tileOverrides"] = body.tileOverrides;
   }
 
   if (updateExpressionParts.length === 0) {

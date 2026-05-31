@@ -15,6 +15,9 @@ export interface MapDocument {
   width: number;
   height: number;
   grid: string[][];
+  startingLives?: number;
+  timeLimit?: number;
+  tileOverrides?: Record<string, { points: number; damage: number }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +27,9 @@ export interface CreateMapRequest {
   width: number;
   height: number;
   grid: string[][];
+  startingLives?: number;
+  timeLimit?: number;
+  tileOverrides?: Record<string, { points: number; damage: number }>;
 }
 
 export interface UpdateMapRequest {
@@ -31,6 +37,9 @@ export interface UpdateMapRequest {
   width?: number;
   height?: number;
   grid?: string[][];
+  startingLives?: number;
+  timeLimit?: number;
+  tileOverrides?: Record<string, { points: number; damage: number }>;
 }
 
 export class MapsApiError extends Error {

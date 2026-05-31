@@ -4,13 +4,15 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react';
 import { useAuth } from './AuthProvider';
-import { TileKey } from '../components/map-builder/tileData';
+import { TileKey, TILE_METADATA } from '../components/map-builder/tileData';
 import { createGrid, placeTile as placeTileUtil, resetCell as resetCellUtil, resizeGrid } from '../components/map-builder/gridUtils';
-import { validateMap, type ValidationResult } from '../components/map-builder/validation';
+import { validateMap, validateSettings, type ValidationResult } from '../components/map-builder/validation';
 import { exportGrid } from '../components/map-builder/exportUtils';
+import type { TileOverride } from '../components/map-builder/MapSettings';
 import {
   listMaps,
   getMap,
@@ -35,6 +37,14 @@ export interface MapContextValue {
   // Palette state
   selectedTile: TileKey | null;
   selectTile: (tileKey: TileKey) => void;
+
+  // Settings state
+  startingLives: number;
+  setStartingLives: (value: number) => void;
+  timeLimit: number;
+  setTimeLimit: (value: number) => void;
+  tileOverrides: Record<TileKey, TileOverride>;
+  setTileOverride: (tileKey: TileKey, override: TileOverride) => void;
 
   // Persistence
   maps: MapSummary[];
@@ -86,6 +96,12 @@ export function MapProvider({ children }: MapProviderProps) {
   // Notification state
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Settings state
+  const [startingLives, setStartingLivesState] = useState(5);
+  const [timeLimit, setTimeLimitState] = useState(5);
+  const [tileOverrides, setTileOverrides] = useState<Record<TileKey, TileOverride>>({} as Record<TileKey, TileOverride>);
+  const tileOverridesRef = useRef(tileOverrides);
 
   // Load user's maps list on mount when authenticated
   useEffect(() => {
@@ -144,6 +160,58 @@ export function MapProvider({ children }: MapProviderProps) {
     setSuccess(null);
   }, []);
 
+  // Settings setters
+  const setStartingLives = useCallback((value: number) => {
+    setStartingLivesState(value);
+    setIsDirty(true);
+  }, []);
+
+  const setTimeLimit = useCallback((value: number) => {
+    setTimeLimitState(value);
+    setIsDirty(true);
+  }, []);
+
+  const setTileOverride = useCallback((tileKey: TileKey, override: TileOverride) => {
+    setTileOverrides((prev) => ({ ...prev, [tileKey]: override }));
+    setIsDirty(true);
+  }, []);
+
+  // Keep ref in sync for use in useEffect without triggering re-runs
+  useEffect(() => {
+    tileOverridesRef.current = tileOverrides;
+  }, [tileOverrides]);
+
+  // Compute tile overrides when grid changes
+  useEffect(() => {
+    const NON_CONFIGURABLE: Set<string> = new Set(['normal', 'wall', 'start']);
+    const presentTiles = new Set<TileKey>();
+
+    for (const row of grid) {
+      for (const cell of row) {
+        if (!NON_CONFIGURABLE.has(cell)) {
+          presentTiles.add(cell);
+        }
+      }
+    }
+
+    const existing = tileOverridesRef.current;
+    const newOverrides: Record<TileKey, TileOverride> = {} as Record<TileKey, TileOverride>;
+
+    for (const tileKey of presentTiles) {
+      if (existing[tileKey]) {
+        newOverrides[tileKey] = existing[tileKey];
+      } else {
+        const metadata = TILE_METADATA[tileKey];
+        newOverrides[tileKey] = {
+          points: metadata.points ?? 0,
+          damage: metadata.damage ?? 0,
+        };
+      }
+    }
+
+    setTileOverrides(newOverrides);
+  }, [grid]);
+
   // Validation
   const validate = useCallback((): ValidationResult => {
     return validateMap(grid);
@@ -154,10 +222,17 @@ export function MapProvider({ children }: MapProviderProps) {
     setError(null);
     setSuccess(null);
 
-    // Validate before saving
+    // Validate grid before saving
     const result = validateMap(grid);
     if (!result.valid) {
       setError(result.errors.join('. '));
+      return;
+    }
+
+    // Validate settings before saving
+    const settingsResult = validateSettings(startingLives, timeLimit, tileOverrides);
+    if (!settingsResult.valid) {
+      setError(settingsResult.errors.join('. '));
       return;
     }
 
@@ -167,13 +242,29 @@ export function MapProvider({ children }: MapProviderProps) {
 
       if (currentMapId) {
         // Update existing map
-        await updateMap(token, currentMapId, { name, width, height, grid });
+        await updateMap(token, currentMapId, {
+          name,
+          width,
+          height,
+          grid,
+          startingLives,
+          timeLimit,
+          tileOverrides: tileOverrides as Record<string, { points: number; damage: number }>,
+        });
         setCurrentMapName(name);
         setIsDirty(false);
         setSuccess('Map saved successfully');
       } else {
         // Create new map
-        const created = await createMap(token, { name, width, height, grid });
+        const created = await createMap(token, {
+          name,
+          width,
+          height,
+          grid,
+          startingLives,
+          timeLimit,
+          tileOverrides: tileOverrides as Record<string, { points: number; damage: number }>,
+        });
         setCurrentMapId(created.mapId);
         setCurrentMapName(name);
         setIsDirty(false);
@@ -189,9 +280,9 @@ export function MapProvider({ children }: MapProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [grid, width, height, currentMapId, getAccessToken]);
+  }, [grid, width, height, currentMapId, getAccessToken, startingLives, timeLimit, tileOverrides]);
 
-  // Load map: call getMap → restore grid/dimensions
+  // Load map: call getMap → restore grid/dimensions/settings
   const loadMap = useCallback(async (mapId: string) => {
     setError(null);
     setSuccess(null);
@@ -206,6 +297,9 @@ export function MapProvider({ children }: MapProviderProps) {
       setGrid(mapDoc.grid as TileKey[][]);
       setCurrentMapId(mapDoc.mapId);
       setCurrentMapName(mapDoc.name);
+      setStartingLivesState(mapDoc.startingLives ?? 5);
+      setTimeLimitState(mapDoc.timeLimit ?? 5);
+      setTileOverrides((mapDoc.tileOverrides ?? {}) as Record<TileKey, TileOverride>);
       setIsDirty(false);
       setSuccess(`Loaded map "${mapDoc.name}"`);
     } catch (err) {
@@ -253,6 +347,9 @@ export function MapProvider({ children }: MapProviderProps) {
     setCurrentMapName(null);
     setIsDirty(false);
     setSelectedTile(null);
+    setStartingLivesState(5);
+    setTimeLimitState(5);
+    setTileOverrides({} as Record<TileKey, TileOverride>);
     setError(null);
     setSuccess(null);
   }, []);
@@ -263,13 +360,13 @@ export function MapProvider({ children }: MapProviderProps) {
     setSuccess(null);
 
     try {
-      const json = exportGrid(grid);
+      const json = exportGrid(grid, startingLives, timeLimit, tileOverrides);
       await navigator.clipboard.writeText(json);
       setSuccess('Map copied to clipboard');
     } catch {
       setError('Failed to copy to clipboard. Please try again.');
     }
-  }, [grid]);
+  }, [grid, startingLives, timeLimit, tileOverrides]);
 
   const value: MapContextValue = {
     grid,
@@ -280,6 +377,12 @@ export function MapProvider({ children }: MapProviderProps) {
     resetCell,
     selectedTile,
     selectTile,
+    startingLives,
+    setStartingLives,
+    timeLimit,
+    setTimeLimit,
+    tileOverrides,
+    setTileOverride,
     maps,
     isLoading,
     isDirty,
