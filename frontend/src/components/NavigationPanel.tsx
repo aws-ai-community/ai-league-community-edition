@@ -52,6 +52,12 @@ export const navigationItems: SideNavigationProps.Item[] = [
     href: "https://discord.com/invite/FrEUMsZrAZ",
     external: true,
   },
+  {
+    type: "link",
+    text: "Community GitHub",
+    href: "https://github.com/aws-ai-community",
+    external: true,
+  },
 ];
 
 export default function NavigationPanel() {

@@ -129,8 +129,8 @@ export function MapGrid({ grid, onCellDrop, onCellClick, onCellRightClick }: Map
                     src={TILE_SPRITES[tileKey]}
                     alt={tileKey}
                     style={{
-                      width: '75%',
-                      height: '75%',
+                      width: '85%',
+                      height: '85%',
                       objectFit: 'contain',
                       imageRendering: 'pixelated',
                       pointerEvents: 'none',
