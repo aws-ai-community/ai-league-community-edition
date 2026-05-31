@@ -37,7 +37,7 @@ export function MapGrid({ grid, onCellDrop, onCellClick, onCellRightClick }: Map
       e.preventDefault();
       setDragOverCell(null);
       const raw = e.dataTransfer.getData('text/plain');
-      if (raw && raw in TILE_SPRITES) {
+      if (raw && Object.prototype.hasOwnProperty.call(TILE_SPRITES, raw)) {
         onCellDrop(row, col, raw as TileKey);
       }
     },

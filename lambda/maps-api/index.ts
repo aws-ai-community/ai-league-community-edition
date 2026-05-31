@@ -400,6 +400,15 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
+  // If a grid is provided, width and height must also be provided to keep stored dimensions consistent
+  if (body.grid !== undefined && (body.width === undefined || body.height === undefined)) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: "width and height must be provided when grid is provided" }),
+    };
+  }
+
   // Trim name if provided
   if (body.name !== undefined && typeof body.name === 'string') {
     body.name = body.name.trim();
