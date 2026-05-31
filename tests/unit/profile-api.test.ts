@@ -31,8 +31,10 @@ vi.mock('@aws-sdk/lib-dynamodb', () => {
   };
 });
 
-// Set environment variables before importing handler
-process.env.USER_PROFILES_TABLE = 'test-user-profiles-table';
+// Set environment variables before importing handler (must be in vi.hoisted to run before module evaluation)
+vi.hoisted(() => {
+  process.env.USER_PROFILES_TABLE = 'test-user-profiles-table';
+});
 
 import { handler, AVATAR_OPTIONS } from '../../lambda/profile-api/index';
 

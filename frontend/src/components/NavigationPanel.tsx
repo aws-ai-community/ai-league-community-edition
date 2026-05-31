@@ -6,6 +6,12 @@ import SideNavigation, {
 export const navigationItems: SideNavigationProps.Item[] = [
   {
     type: "link",
+    text: "Map Builder",
+    href: "/map-builder",
+  },
+  { type: "divider" },
+  {
+    type: "link",
     text: "Agentic Workshop",
     href: "https://catalog.us-east-1.prod.workshops.aws/workshops/0c1f072b-ebd1-4d8d-9340-dd47479481c0/en-US/introduction",
     external: true,
@@ -44,6 +50,12 @@ export const navigationItems: SideNavigationProps.Item[] = [
     type: "link",
     text: "Community Discord",
     href: "https://discord.com/invite/FrEUMsZrAZ",
+    external: true,
+  },
+  {
+    type: "link",
+    text: "Community GitHub",
+    href: "https://github.com/aws-ai-community",
     external: true,
   },
 ];
