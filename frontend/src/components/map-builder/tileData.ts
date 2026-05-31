@@ -45,7 +45,7 @@ export const TILE_METADATA: Record<TileKey, TileMetadata> = {
   normal: { key: 'normal', name: 'Normal', description: 'Empty walkable floor tile', category: 'Special' },
   wall: { key: 'wall', name: 'Wall', description: 'Impassable wall', category: 'Special' },
   start: { key: 'start', name: 'Start', description: 'Player starting position', category: 'Special' },
-  treasure: { key: 'treasure', name: 'Treasure', description: 'Goal - reach to win (+1000 bonus)', category: 'Special' },
+  treasure: { key: 'treasure', name: 'Treasure', description: 'Goal - reach to win (+1000 bonus)', category: 'Special', points: 1000, damage: 0 },
   c7: { key: 'c7', name: 'Coins', description: 'Free coins, no challenge required', category: 'Challenge', points: 250, damage: 0 },
   c5: { key: 'c5', name: 'Bonehead', description: 'Simple question that requires little skill', category: 'Challenge', points: 250, damage: 1 },
   c1: { key: 'c1', name: 'Violent Violet', description: 'Guardrail challenge - configure Bedrock Guardrails correctly', category: 'Challenge', points: 400, damage: 1 },
