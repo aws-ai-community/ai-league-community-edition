@@ -2,6 +2,9 @@ import { useState, useCallback, type DragEvent, type MouseEvent } from 'react';
 import { TILE_SPRITES, type TileKey } from './tileData';
 import { TileTooltip } from './TileTooltip';
 
+// Normal tile used as background for all non-wall cells
+const NORMAL_BG = TILE_SPRITES['normal'];
+
 interface MapGridProps {
   grid: TileKey[][];
   onCellDrop: (row: number, col: number, tileKey: TileKey) => void;
@@ -91,12 +94,15 @@ export function MapGrid({ grid, onCellDrop, onCellClick, onCellRightClick }: Map
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: isDragOver ? '#4a90d9' : '#1e1e2e',
+                  backgroundImage: tileKey === 'wall' ? 'none' : `url(${NORMAL_BG})`,
+                  backgroundSize: 'cover',
+                  backgroundColor: isDragOver ? '#4a90d9' : (tileKey === 'wall' ? 'transparent' : 'transparent'),
                   border: isDragOver ? '2px solid #6bb5ff' : '1px solid #3a3a4a',
                   borderRadius: 2,
                   cursor: 'pointer',
                   transition: 'background-color 0.1s, border-color 0.1s',
                   boxSizing: 'border-box',
+                  position: 'relative',
                 }}
                 onDragOver={(e) => handleDragOver(e, rowIdx, colIdx)}
                 onDragLeave={handleDragLeave}
@@ -104,19 +110,35 @@ export function MapGrid({ grid, onCellDrop, onCellClick, onCellRightClick }: Map
                 onClick={(e) => handleClick(e, rowIdx, colIdx)}
                 onContextMenu={(e) => handleContextMenu(e, rowIdx, colIdx)}
               >
-                <img
-                  src={TILE_SPRITES[tileKey]}
-                  alt={tileKey}
-                  style={{
-                    width: '85%',
-                    height: '85%',
-                    objectFit: 'contain',
-                    imageRendering: 'pixelated',
-                    pointerEvents: 'none',
-                    userSelect: 'none',
-                  }}
-                  draggable={false}
-                />
+                {tileKey === 'wall' ? (
+                  <img
+                    src={TILE_SPRITES[tileKey]}
+                    alt={tileKey}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      imageRendering: 'pixelated',
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    }}
+                    draggable={false}
+                  />
+                ) : tileKey !== 'normal' ? (
+                  <img
+                    src={TILE_SPRITES[tileKey]}
+                    alt={tileKey}
+                    style={{
+                      width: '75%',
+                      height: '75%',
+                      objectFit: 'contain',
+                      imageRendering: 'pixelated',
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                    }}
+                    draggable={false}
+                  />
+                ) : null}
               </div>
             </TileTooltip>
           );
