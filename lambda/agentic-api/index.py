@@ -273,8 +273,27 @@ def handle_invoke_agent_core_runtime(arguments, event):
             "message": f"Invalid navigationPath JSON: {e}",
         }
 
-    # Convert to list of tuples
-    navigation_path_tuples = [(step[0], step[1]) for step in navigation_path]
+    # Validate and convert to list of tuples
+    if not isinstance(navigation_path, list) or len(navigation_path) == 0:
+        return {
+            "sessionId": "error",
+            "status": "error",
+            "message": "navigationPath must be a non-empty JSON array of [row, col] pairs",
+        }
+
+    try:
+        navigation_path_tuples = []
+        for i, step in enumerate(navigation_path):
+            if not isinstance(step, (list, tuple)) or len(step) < 2:
+                raise ValueError(f"Step {i} is not a valid [row, col] pair: {step}")
+            row, col = int(step[0]), int(step[1])
+            navigation_path_tuples.append((row, col))
+    except (TypeError, ValueError, IndexError) as e:
+        return {
+            "sessionId": "error",
+            "status": "error",
+            "message": f"Invalid navigationPath format: {e}",
+        }
 
     # Generate session ID
     session_id = str(uuid.uuid4())

@@ -109,8 +109,10 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
           }));
 
           // Find the currently selected question bank entry (if any)
+          // Note: for map-dependent (c3) questions, expectedAnswer is computed and won't match the bank value,
+          // so we match on question text only.
           const selectedQuestionIdx = questionsForType.findIndex(
-            (e) => e.question === assignment.question && e.expectedAnswer === assignment.expectedAnswer
+            (e) => e.question === assignment.question
           );
           const selectedQuestionOption = selectedQuestionIdx >= 0
             ? questionBankOptions[selectedQuestionIdx]

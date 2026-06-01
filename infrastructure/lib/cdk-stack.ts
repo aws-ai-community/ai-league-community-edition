@@ -125,6 +125,13 @@ export class CdkStack extends cdk.Stack {
     // ========================================================================
 
     // AppSync API with API Key authentication
+    // NOTE: Phase 1 uses API Key auth for simplicity (matches reference implementation).
+    // This means event.identity.sub is absent, so all user-specific data (LLM config,
+    // submissions, leaderboard) uses "anonymous" as userId. Phase 2 will add Cognito
+    // User Pool auth as an additional auth mode, enabling per-user data isolation.
+    // The API key is published via settings.json — acceptable for Phase 1 as the API
+    // only exposes game logic (no sensitive data). Phase 2 will restrict mutations to
+    // authenticated users via Cognito.
     const agenticApi = new appsync.GraphqlApi(this, 'AgenticApi', {
       name: 'ai-league-agentic-api',
       definition: appsync.Definition.fromFile(

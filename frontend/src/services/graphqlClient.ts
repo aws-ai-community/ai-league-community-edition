@@ -92,7 +92,16 @@ async function graphqlRequest<T>(query: string, variables?: Record<string, unkno
     throw new Error(`GraphQL request failed: ${message}`);
   }
 
-  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(`GraphQL request failed: HTTP ${response.status} ${response.statusText}`);
+  }
+
+  let body: { data?: T; errors?: { message: string }[] };
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(`GraphQL request failed: response is not valid JSON (HTTP ${response.status})`);
+  }
 
   if (body.errors && body.errors.length > 0) {
     throw new Error(body.errors[0].message);
