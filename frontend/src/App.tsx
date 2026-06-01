@@ -21,6 +21,10 @@ import { ProfileProvider, useProfile } from './contexts/ProfileContext';
 import NavigationPanel from './components/NavigationPanel';
 import { ProfilePage } from './components/ProfilePage';
 import MapBuilderPage from './components/map-builder/MapBuilderPage';
+import GameplayPage from './components/agentic/GameplayPage';
+import LeaderboardPage from './components/agentic/LeaderboardPage';
+import SubmissionHistoryPage from './components/agentic/SubmissionHistoryPage';
+import ConfigurationPage from './components/agentic/ConfigurationPage';
 import { getConfig } from './config';
 
 function LoginPage() {
@@ -185,6 +189,10 @@ function AuthenticatedApp() {
             <Route path="/" element={<HomePage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/map-builder" element={<MapBuilderPage />} />
+            <Route path="/gameplay" element={<GameplayPage />} />
+            <Route path="/leaderboard" element={<LeaderboardPage />} />
+            <Route path="/submission-history" element={<SubmissionHistoryPage />} />
+            <Route path="/configuration" element={<ConfigurationPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         }

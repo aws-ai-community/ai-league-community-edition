@@ -6,6 +6,7 @@ import MapToolbar from './MapToolbar';
 import { TilePalette } from './TilePalette';
 import { MapGrid } from './MapGrid';
 import MapSettings from './MapSettings';
+import ChallengeEditor from './ChallengeEditor';
 
 function MapBuilderContent() {
   const {
@@ -18,6 +19,8 @@ function MapBuilderContent() {
     error,
     success,
     clearNotifications,
+    challenges,
+    setChallenges,
   } = useMap();
 
   const validationResult = validate();
@@ -101,7 +104,14 @@ function MapBuilderContent() {
             overflowY: 'auto',
           }}
         >
-          <MapSettings />
+          <SpaceBetween size="m">
+            <MapSettings />
+            <ChallengeEditor
+              challenges={challenges}
+              onChallengesChange={setChallenges}
+              grid={grid}
+            />
+          </SpaceBetween>
         </div>
       </div>
     </SpaceBetween>

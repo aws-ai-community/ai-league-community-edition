@@ -8,6 +8,13 @@ export interface MapSummary {
   updatedAt: string;
 }
 
+export interface ChallengeAssignmentData {
+  type: string;
+  question: string;
+  expectedAnswer: string;
+  gradingStrategy: string;
+}
+
 export interface MapDocument {
   userId: string;
   mapId: string;
@@ -18,6 +25,8 @@ export interface MapDocument {
   startingLives?: number;
   timeLimit?: number;
   tileOverrides?: Record<string, { points: number; damage: number }>;
+  challenges?: Record<string, ChallengeAssignmentData>;
+  isPlayable?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +39,8 @@ export interface CreateMapRequest {
   startingLives?: number;
   timeLimit?: number;
   tileOverrides?: Record<string, { points: number; damage: number }>;
+  challenges?: Record<string, ChallengeAssignmentData>;
+  isPlayable?: boolean;
 }
 
 export interface UpdateMapRequest {
@@ -40,6 +51,8 @@ export interface UpdateMapRequest {
   startingLives?: number;
   timeLimit?: number;
   tileOverrides?: Record<string, { points: number; damage: number }>;
+  challenges?: Record<string, ChallengeAssignmentData>;
+  isPlayable?: boolean;
 }
 
 export class MapsApiError extends Error {

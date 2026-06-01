@@ -25,6 +25,7 @@ After deploying the backend at least once:
 ```bash
 # Download runtime config from your deployed app
 curl https://<your-cloudfront-domain>/aws-exports.json -o frontend/public/aws-exports.json
+curl https://<your-cloudfront-domain>/settings.json -o frontend/public/settings.json
 
 # Start the frontend dev server
 cd frontend
@@ -37,8 +38,14 @@ The app runs at `http://localhost:3000` with hot reload.
 ### Running Tests
 
 ```bash
-# Run all tests (unit + property-based)
+# Run all frontend/TypeScript tests (unit + property-based)
 npm test
+
+# Run Python backend tests
+cd lambda/agentic-api && python3 -m pytest tests/ -v
+
+# Run CDK infrastructure tests
+cd infrastructure && npm test
 
 # Run tests in watch mode during development
 npx vitest
@@ -56,12 +63,19 @@ npx vitest
 ### File Organization
 
 - **Frontend components**: `frontend/src/components/`
+  - Map Builder: `frontend/src/components/map-builder/`
+  - Agentic pages: `frontend/src/components/agentic/`
 - **React contexts**: `frontend/src/contexts/`
 - **Service modules**: `frontend/src/services/`
-- **Lambda handlers**: `lambda/<function-name>/index.ts`
+- **Data files**: `frontend/src/data/` (question bank, predefined maps)
+- **Lambda handlers (TypeScript)**: `lambda/<function-name>/index.ts`
+- **Lambda handlers (Python)**: `lambda/agentic-api/` (game engine, grading, scoring)
 - **CDK infrastructure**: `infrastructure/lib/`
+- **GraphQL schema**: `infrastructure/graphql/schema.graphql`
 - **Unit tests**: `tests/unit/`
 - **Property-based tests**: `tests/property/`
+- **Frontend component tests**: `frontend/src/components/**/__tests__/`
+- **Python backend tests**: `lambda/agentic-api/tests/`
 
 ### Naming Conventions
 
@@ -74,14 +88,16 @@ npx vitest
 
 - Write unit tests for new components and handlers
 - Write property-based tests for validation logic and data transformations
-- Use `vitest` as the test runner
-- Use `fast-check` for property-based tests (minimum 100 iterations)
+- Use `vitest` as the test runner for frontend/TypeScript
+- Use `pytest` + `hypothesis` for Python backend property tests
+- Use `fast-check` for TypeScript property-based tests (minimum 100 iterations)
 - Use `@testing-library/react` for component tests
 - Mock external dependencies (AWS SDK, fetch, localStorage)
+- All property tests must use fast-check/hypothesis generated values (no `Math.random()` inside properties)
 
 ### Commits
 
-- Use clear, descriptive commit messages
+- Use [conventional commits](https://www.conventionalcommits.org/) format (`feat:`, `fix:`, `test:`, `docs:`)
 - Keep commits focused on a single change
 - Reference issue numbers where applicable
 
@@ -96,10 +112,19 @@ npx vitest
 
 ### Backend Changes (Lambda)
 
-1. Modify handlers in `lambda/<function-name>/index.ts`
-2. Add corresponding tests in `tests/unit/`
-3. Verify TypeScript compiles: `npx tsc --noEmit --project lambda/tsconfig.json`
-4. Run tests: `npm test`
+1. **TypeScript Lambdas** (profile-api, maps-api, admin-seed):
+   - Modify handlers in `lambda/<function-name>/index.ts`
+   - Add corresponding tests in `tests/unit/`
+   - Verify TypeScript compiles: `npx tsc --noEmit --project lambda/tsconfig.json`
+   - Lambda env vars should fail fast with explicit error messages (not just `!` assertion)
+   - Use `error.name` instead of `instanceof` for AWS SDK exceptions (bundling-safe)
+
+2. **Python Lambda** (agentic-api):
+   - Modify handlers in `lambda/agentic-api/`
+   - Add property tests in `lambda/agentic-api/tests/`
+   - Run tests: `cd lambda/agentic-api && python3 -m pytest tests/ -v`
+   - Use `hypothesis` for property-based tests
+   - Env vars validated at module level (fail fast on cold start)
 
 ### Infrastructure Changes
 
@@ -110,9 +135,9 @@ npx vitest
 
 ## Pull Request Process
 
-1. Ensure all tests pass: `npm test`
+1. Ensure all tests pass: `npm test` and `cd lambda/agentic-api && python3 -m pytest tests/`
 2. Ensure TypeScript compiles without errors in all workspaces
-3. Ensure the frontend builds: `cd frontend && npx vite build`
+3. Ensure the CDK synthesizes: `npx cdk synth --quiet`
 4. Update documentation if your change affects the user experience or deployment
 5. Submit a pull request with a clear description of the changes
 
