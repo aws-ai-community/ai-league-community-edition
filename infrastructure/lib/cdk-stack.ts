@@ -4,6 +4,7 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaNodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as appsync from 'aws-cdk-lib/aws-appsync';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cr from 'aws-cdk-lib/custom-resources';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -72,6 +73,156 @@ export class CdkStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // DynamoDB AgentConfigurations table (single-table design for agentic config entities)
+    const agentConfigurationsTable = new dynamodb.Table(this, 'AgentConfigurationsTable', {
+      tableName: 'ai-league-community-agent-configurations',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    agentConfigurationsTable.addGlobalSecondaryIndex({
+      indexName: 'GSI1',
+      partitionKey: { name: 'gsi1pk', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'gsi1sk', type: dynamodb.AttributeType.STRING },
+    });
+
+    // DynamoDB GameSessions table
+    const gameSessionsTable = new dynamodb.Table(this, 'GameSessionsTable', {
+      tableName: 'ai-league-community-game-sessions',
+      partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // DynamoDB AgenticLeaderboard table
+    const agenticLeaderboardTable = new dynamodb.Table(this, 'AgenticLeaderboardTable', {
+      tableName: 'ai-league-community-agentic-leaderboard',
+      partitionKey: { name: 'leaderboardId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'sk', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // DynamoDB AgenticSubmissions table
+    const agenticSubmissionsTable = new dynamodb.Table(this, 'AgenticSubmissionsTable', {
+      tableName: 'ai-league-community-agentic-submissions',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'updatedTime', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // ========================================================================
+    // AppSync GraphQL API for Agentic Game Engine
+    // ========================================================================
+
+    // AppSync API with API Key authentication
+    // NOTE: Phase 1 uses API Key auth for simplicity (matches reference implementation).
+    // This means event.identity.sub is absent, so all user-specific data (LLM config,
+    // submissions, leaderboard) uses "anonymous" as userId. Phase 2 will add Cognito
+    // User Pool auth as an additional auth mode, enabling per-user data isolation.
+    // The API key is published via settings.json — acceptable for Phase 1 as the API
+    // only exposes game logic (no sensitive data). Phase 2 will restrict mutations to
+    // authenticated users via Cognito.
+    const agenticApi = new appsync.GraphqlApi(this, 'AgenticApi', {
+      name: 'ai-league-agentic-api',
+      definition: appsync.Definition.fromFile(
+        path.join(__dirname, '../graphql/schema.graphql')
+      ),
+      authorizationConfig: {
+        defaultAuthorization: {
+          authorizationType: appsync.AuthorizationType.API_KEY,
+          apiKeyConfig: {
+            expires: cdk.Expiration.after(cdk.Duration.days(365)),
+          },
+        },
+      },
+      logConfig: {
+        fieldLogLevel: appsync.FieldLogLevel.ERROR,
+      },
+    });
+
+    // Python Lambda function for agentic API resolver
+    const agenticLambda = new lambda.Function(this, 'AgenticApiLambda', {
+      functionName: 'ai-league-agentic-api',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/agentic-api')),
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+      environment: {
+        GAME_SESSIONS_TABLE: gameSessionsTable.tableName,
+        LEADERBOARD_TABLE: agenticLeaderboardTable.tableName,
+        SUBMISSIONS_TABLE: agenticSubmissionsTable.tableName,
+        AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
+        MAPS_TABLE: mapsTable.tableName,
+      },
+    });
+
+    // Grant Lambda read/write access to all agentic tables plus Maps table
+    gameSessionsTable.grantReadWriteData(agenticLambda);
+    agenticLeaderboardTable.grantReadWriteData(agenticLambda);
+    agenticSubmissionsTable.grantReadWriteData(agenticLambda);
+    agentConfigurationsTable.grantReadWriteData(agenticLambda);
+    mapsTable.grantReadWriteData(agenticLambda);
+
+    // Grant Lambda permission to invoke Bedrock models
+    agenticLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['bedrock:InvokeModel'],
+        resources: ['*'],
+      })
+    );
+
+    // Attach Lambda as data source for AppSync
+    const agenticDataSource = agenticApi.addLambdaDataSource(
+      'AgenticLambdaDataSource',
+      agenticLambda
+    );
+
+    // Attach resolvers for all Query fields
+    agenticDataSource.createResolver('GetMapResolver', {
+      typeName: 'Query',
+      fieldName: 'GetMap',
+    });
+    agenticDataSource.createResolver('GetGameSessionResolver', {
+      typeName: 'Query',
+      fieldName: 'GetGameSession',
+    });
+    agenticDataSource.createResolver('GetLeaderboardSubmissionsResolver', {
+      typeName: 'Query',
+      fieldName: 'GetLeaderboardSubmissions',
+    });
+    agenticDataSource.createResolver('GetSubmissionHistoryResolver', {
+      typeName: 'Query',
+      fieldName: 'GetSubmissionHistory',
+    });
+    agenticDataSource.createResolver('GetLlmConfigurationResolver', {
+      typeName: 'Query',
+      fieldName: 'GetLlmConfiguration',
+    });
+
+    // Attach resolvers for all Mutation fields
+    agenticDataSource.createResolver('InvokeAgentCoreRuntimeResolver', {
+      typeName: 'Mutation',
+      fieldName: 'InvokeAgentCoreRuntime',
+    });
+    agenticDataSource.createResolver('SubmitToLeaderboardResolver', {
+      typeName: 'Mutation',
+      fieldName: 'SubmitToLeaderboard',
+    });
+    agenticDataSource.createResolver('SaveLlmConfigurationResolver', {
+      typeName: 'Mutation',
+      fieldName: 'SaveLlmConfiguration',
     });
 
     // Profile API Lambda function (TypeScript bundled with esbuild)
@@ -315,9 +466,15 @@ export class CdkStack extends cdk.Stack {
       },
     });
 
-    // Single BucketDeployment with both frontend assets and runtime config
+    // Agentic Game Engine settings deployed as settings.json
+    const settingsAsset = s3deploy.Source.jsonData('settings.json', {
+      graphql: { endpoint: agenticApi.graphqlUrl },
+      graphqlApiKey: agenticApi.apiKey,
+    });
+
+    // Single BucketDeployment with frontend assets, runtime config, and agentic settings
     new s3deploy.BucketDeployment(this, 'FrontendDeployment', {
-      sources: [frontendAsset, exportsAsset],
+      sources: [frontendAsset, exportsAsset, settingsAsset],
       destinationBucket: frontendBucket,
       distribution,
       distributionPaths: ['/*'],
@@ -375,6 +532,16 @@ export class CdkStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AdminPassword', {
       value: adminSeedResource.getAttString('AdminPassword'),
       description: 'Generated admin password (only set on first deployment when user is created)',
+    });
+
+    new cdk.CfnOutput(this, 'AgenticApiEndpoint', {
+      value: agenticApi.graphqlUrl,
+      description: 'AppSync GraphQL API endpoint for the Agentic Game Engine',
+    });
+
+    new cdk.CfnOutput(this, 'AgenticApiKey', {
+      value: agenticApi.apiKey || '',
+      description: 'AppSync API Key for the Agentic Game Engine',
     });
   }
 }

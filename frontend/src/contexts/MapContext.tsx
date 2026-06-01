@@ -11,8 +11,10 @@ import { useAuth } from './AuthProvider';
 import { TileKey, TILE_METADATA } from '../components/map-builder/tileData';
 import { createGrid, placeTile as placeTileUtil, resetCell as resetCellUtil, resizeGrid } from '../components/map-builder/gridUtils';
 import { validateMap, validateSettings, type ValidationResult } from '../components/map-builder/validation';
+import { validatePath, isMapPlayable, findStartPosition } from '../components/map-builder/pathValidation';
 import { exportGrid } from '../components/map-builder/exportUtils';
 import type { TileOverride } from '../components/map-builder/MapSettings';
+import type { ChallengeAssignment } from '../components/map-builder/ChallengeEditor';
 import {
   listMaps,
   getMap,
@@ -45,6 +47,10 @@ export interface MapContextValue {
   setTimeLimit: (value: number) => void;
   tileOverrides: Record<TileKey, TileOverride>;
   setTileOverride: (tileKey: TileKey, override: TileOverride) => void;
+
+  // Challenge assignments
+  challenges: Record<string, ChallengeAssignment>;
+  setChallenges: (challenges: Record<string, ChallengeAssignment>) => void;
 
   // Persistence
   maps: MapSummary[];
@@ -102,6 +108,9 @@ export function MapProvider({ children }: MapProviderProps) {
   const [timeLimit, setTimeLimitState] = useState(5);
   const [tileOverrides, setTileOverrides] = useState<Record<TileKey, TileOverride>>({} as Record<TileKey, TileOverride>);
   const tileOverridesRef = useRef(tileOverrides);
+
+  // Challenge assignments state
+  const [challenges, setChallengesState] = useState<Record<string, ChallengeAssignment>>({});
 
   // Load user's maps list on mount when authenticated
   useEffect(() => {
@@ -176,6 +185,11 @@ export function MapProvider({ children }: MapProviderProps) {
     setIsDirty(true);
   }, []);
 
+  const setChallenges = useCallback((newChallenges: Record<string, ChallengeAssignment>) => {
+    setChallengesState(newChallenges);
+    setIsDirty(true);
+  }, []);
+
   // Keep ref in sync for use in useEffect without triggering re-runs
   useEffect(() => {
     tileOverridesRef.current = tileOverrides;
@@ -217,7 +231,7 @@ export function MapProvider({ children }: MapProviderProps) {
     return validateMap(grid);
   }, [grid]);
 
-  // Save map: validate → call createMap or updateMap
+  // Save map: validate → path validation → call createMap or updateMap
   const saveMap = useCallback(async (name: string) => {
     setError(null);
     setSuccess(null);
@@ -236,6 +250,19 @@ export function MapProvider({ children }: MapProviderProps) {
       return;
     }
 
+    // Validate path from start to treasure
+    const startPos = findStartPosition(grid);
+    if (startPos) {
+      const pathResult = validatePath(grid, startPos.row, startPos.col);
+      if (!pathResult.valid) {
+        setError(pathResult.error || 'No valid path exists from start tile to any treasure tile');
+        return;
+      }
+    }
+
+    // Determine playability (all challenge tiles have assignments)
+    const playable = isMapPlayable(grid, challenges);
+
     try {
       setIsLoading(true);
       const token = await getAccessToken();
@@ -250,6 +277,8 @@ export function MapProvider({ children }: MapProviderProps) {
           startingLives,
           timeLimit,
           tileOverrides: tileOverrides as Record<string, { points: number; damage: number }>,
+          challenges,
+          isPlayable: playable,
         });
         setCurrentMapName(name);
         setIsDirty(false);
@@ -264,6 +293,8 @@ export function MapProvider({ children }: MapProviderProps) {
           startingLives,
           timeLimit,
           tileOverrides: tileOverrides as Record<string, { points: number; damage: number }>,
+          challenges,
+          isPlayable: playable,
         });
         setCurrentMapId(created.mapId);
         setCurrentMapName(name);
@@ -280,9 +311,9 @@ export function MapProvider({ children }: MapProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [grid, width, height, currentMapId, getAccessToken, startingLives, timeLimit, tileOverrides]);
+  }, [grid, width, height, currentMapId, getAccessToken, startingLives, timeLimit, tileOverrides, challenges]);
 
-  // Load map: call getMap → restore grid/dimensions/settings
+  // Load map: call getMap → restore grid/dimensions/settings/challenges
   const loadMap = useCallback(async (mapId: string) => {
     setError(null);
     setSuccess(null);
@@ -300,6 +331,7 @@ export function MapProvider({ children }: MapProviderProps) {
       setStartingLivesState(mapDoc.startingLives ?? 5);
       setTimeLimitState(mapDoc.timeLimit ?? 5);
       setTileOverrides((mapDoc.tileOverrides ?? {}) as Record<TileKey, TileOverride>);
+      setChallengesState((mapDoc.challenges ?? {}) as Record<string, ChallengeAssignment>);
       setIsDirty(false);
       setSuccess(`Loaded map "${mapDoc.name}"`);
     } catch (err) {
@@ -350,6 +382,7 @@ export function MapProvider({ children }: MapProviderProps) {
     setStartingLivesState(5);
     setTimeLimitState(5);
     setTileOverrides({} as Record<TileKey, TileOverride>);
+    setChallengesState({});
     setError(null);
     setSuccess(null);
   }, []);
@@ -383,6 +416,8 @@ export function MapProvider({ children }: MapProviderProps) {
     setTimeLimit,
     tileOverrides,
     setTileOverride,
+    challenges,
+    setChallenges,
     maps,
     isLoading,
     isDirty,

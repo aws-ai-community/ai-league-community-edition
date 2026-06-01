@@ -1,0 +1,100 @@
+type GameSessionResponse {
+  sessionId: String!
+  status: String!
+  gameEvents: String
+  consumedTiles: String
+  plannedPath: String
+  error: String
+  agentResponse: String
+  finalScore: Float
+  qaScore: Float
+  lifeBonusScore: Float
+  givenTokenBonus: Float
+  treasureBonus: Float
+  livesRemaining: Int
+  reachedTreasure: Boolean
+  customModelCount: Int
+  createdAt: String
+  updatedAt: String
+}
+
+type InvokeRuntimeResponse {
+  sessionId: String!
+  status: String!
+  message: String
+  gameEvents: String
+  finalScore: Float
+  qaScore: Float
+  lifeBonusScore: Float
+  givenTokenBonus: Float
+  treasureBonus: Float
+  livesRemaining: Int
+  reachedTreasure: Boolean
+}
+
+type LeaderboardEntry {
+  userId: String!
+  alias: String
+  avatar: String
+  bestScore: Float
+  lastScore: Float
+  totalSubmissions: Int
+  rank: Int
+}
+
+type LeaderboardSubmissionsResponse {
+  entries: [LeaderboardEntry!]!
+}
+
+type SubmissionHistoryEntry {
+  updatedTime: AWSDateTime
+  mapId: String
+  leaderboardId: String
+  finalScore: Float
+  correctAnswers: Int
+  totalChallenges: Int
+  qaScore: Float
+  lifeBonusScore: Float
+  givenTokenBonus: Float
+  livesRemaining: Int
+}
+
+type SubmissionHistoryResponse {
+  items: [SubmissionHistoryEntry!]!
+}
+
+type MapResponse {
+  mapData: String
+}
+
+type MutationResponse {
+  success: Boolean!
+  statusCode: Int
+  message: String
+}
+
+type LlmConfigurationResponse {
+  defaultModel: String
+  challengeGeneration: String
+  challengeGrading: String
+  gameCommentary: String
+}
+
+type Query {
+  GetMap(mapId: String!): MapResponse
+  GetGameSession(sessionId: String!): GameSessionResponse
+  GetLeaderboardSubmissions(leaderboardId: String!): LeaderboardSubmissionsResponse
+  GetSubmissionHistory(mapId: String): SubmissionHistoryResponse
+  GetLlmConfiguration: LlmConfigurationResponse
+}
+
+type Mutation {
+  InvokeAgentCoreRuntime(mapId: String!, navigationPath: String!, customModelCount: Int, mapData: String): InvokeRuntimeResponse
+  SubmitToLeaderboard(leaderboardId: String!, sessionId: String!): MutationResponse
+  SaveLlmConfiguration(defaultModel: String, challengeGeneration: String, challengeGrading: String, gameCommentary: String): MutationResponse
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+}

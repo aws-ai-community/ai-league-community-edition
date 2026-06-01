@@ -36,6 +36,10 @@ describe('NavigationPanel', () => {
   it('renders all links in correct order with correct URLs', () => {
     const expectedLinks = [
       { text: 'Map Builder', href: '/map-builder' },
+      { text: 'Game Play', href: '/gameplay' },
+      { text: 'Leaderboard', href: '/leaderboard' },
+      { text: 'Submission History', href: '/submission-history' },
+      { text: 'Configuration', href: '/configuration' },
       { text: 'Agentic Workshop', href: 'https://catalog.us-east-1.prod.workshops.aws/workshops/0c1f072b-ebd1-4d8d-9340-dd47479481c0/en-US/introduction' },
       { text: 'Builder Center', href: 'https://builder.aws.com/connect/space/7e5f51ef-0919-32da-aaa7-ddf263651d69/aws-ai-league' },
       { text: 'Builder Center (Community)', href: 'https://builder.aws.com/connect/space/7148b02a-ef8c-3a67-97c9-53be6bd54999/ai-community' },
@@ -43,12 +47,13 @@ describe('NavigationPanel', () => {
       { text: 'Official Rules', href: 'https://aileague.aws.dev/2026-AWS-AI-League-Championship-Official-Rules.pdf' },
       { text: 'Community Blog', href: 'https://blog.awsaicommunity.org/' },
       { text: 'Community Discord', href: 'https://discord.com/invite/FrEUMsZrAZ' },
+      { text: 'Community GitHub', href: 'https://github.com/aws-ai-community' },
     ];
 
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(8);
+    expect(links).toHaveLength(13);
 
     links.forEach((link, index) => {
       expect(link).toHaveTextContent(expectedLinks[index].text);
@@ -60,9 +65,9 @@ describe('NavigationPanel', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    // Filter to only external links (skip Map Builder which is internal)
+    // Filter to only external links (skip internal links: Map Builder, Game Play, Leaderboard, Submission History, Configuration)
     const externalLinks = links.filter((link) => link.getAttribute('data-external') === 'true');
-    expect(externalLinks).toHaveLength(7);
+    expect(externalLinks).toHaveLength(8);
 
     externalLinks.forEach((link) => {
       expect(link).toHaveAttribute('target', '_blank');
@@ -71,25 +76,29 @@ describe('NavigationPanel', () => {
   });
 
   describe('navigationItems data structure', () => {
-    it('contains exactly 9 items (1 internal link + 1 divider + 7 external links)', () => {
-      expect(navigationItems).toHaveLength(9);
+    it('contains exactly 14 items (5 internal links + 1 divider + 8 external links)', () => {
+      expect(navigationItems).toHaveLength(14);
     });
 
     it('all link items have correct type', () => {
       const linkItems = navigationItems.filter((item) => item.type === 'link');
-      expect(linkItems).toHaveLength(8);
+      expect(linkItems).toHaveLength(13);
     });
 
     it('external link items have external true', () => {
       const externalItems = navigationItems.filter(
         (item) => item.type === 'link' && 'external' in item && item.external === true
       );
-      expect(externalItems).toHaveLength(7);
+      expect(externalItems).toHaveLength(8);
     });
 
     it('items are in the correct order with correct hrefs', () => {
       const expectedOrder = [
         'Map Builder',
+        'Game Play',
+        'Leaderboard',
+        'Submission History',
+        'Configuration',
         'Agentic Workshop',
         'Builder Center',
         'Builder Center (Community)',
@@ -97,6 +106,7 @@ describe('NavigationPanel', () => {
         'Official Rules',
         'Community Blog',
         'Community Discord',
+        'Community GitHub',
       ];
 
       const linkItems = navigationItems.filter((item) => item.type === 'link');

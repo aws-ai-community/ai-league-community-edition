@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       'tests/**/*.{test,spec}.{ts,tsx}',
       'tests/**/*.property.{ts,tsx}',
+      'frontend/src/**/__tests__/*.{test,spec}.{ts,tsx}',
     ],
     coverage: {
       provider: 'v8',

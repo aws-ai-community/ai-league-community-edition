@@ -9,6 +9,26 @@ export const navigationItems: SideNavigationProps.Item[] = [
     text: "Map Builder",
     href: "/map-builder",
   },
+  {
+    type: "link",
+    text: "Game Play",
+    href: "/gameplay",
+  },
+  {
+    type: "link",
+    text: "Leaderboard",
+    href: "/leaderboard",
+  },
+  {
+    type: "link",
+    text: "Submission History",
+    href: "/submission-history",
+  },
+  {
+    type: "link",
+    text: "Configuration",
+    href: "/configuration",
+  },
   { type: "divider" },
   {
     type: "link",
