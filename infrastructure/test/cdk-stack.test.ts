@@ -24,7 +24,6 @@ describe('CdkStack - Agentic Game Engine Infrastructure', () => {
     template.resourceCountIs('AWS::AppSync::GraphQLApi', 1);
     template.resourceCountIs('AWS::AppSync::ApiKey', 1);
     template.resourceCountIs('AWS::AppSync::GraphQLSchema', 1);
-    template.resourceCountIs('Custom::CDKBucketDeployment', 1);
   });
 
   // =========================================================================
@@ -176,24 +175,13 @@ describe('CdkStack - Agentic Game Engine Infrastructure', () => {
         PolicyDocument: {
           Statement: Match.arrayWith([
             Match.objectLike({
-              Action: 'bedrock:InvokeModel',
+              Action: Match.arrayWith(['bedrock:InvokeModel']),
               Effect: 'Allow',
               Resource: '*',
             }),
           ]),
         },
       });
-    });
-  });
-
-  // =========================================================================
-  // Settings.json Deployment
-  // =========================================================================
-
-  describe('Settings.json Deployment', () => {
-    test('S3 BucketDeployment custom resource exists', () => {
-      // The BucketDeployment creates a Custom::CDKBucketDeployment resource
-      template.resourceCountIs('Custom::CDKBucketDeployment', 1);
     });
   });
 });

@@ -4,6 +4,10 @@ frontend/dist/
 dist-node/
 .cache/
 
+# Build artifacts
+infrastructure/dist/
+lambda/dist/
+
 # CDK
 cdk.out/
 cdk-out-*/
