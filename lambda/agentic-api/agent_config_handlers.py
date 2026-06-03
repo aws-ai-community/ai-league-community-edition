@@ -617,7 +617,9 @@ def handle_update_sub_agent(arguments: dict, event: dict) -> dict:
         logger.error(f"Error updating sub-agent {agent_id} for user {user_id}: {e}")
         return {"success": False, "statusCode": 500, "message": f"Failed to update sub-agent: {e}"}
 
-    return {"success": True, "statusCode": 200, "message": "Sub-agent updated successfully"}
+    return {"success": True, "statusCode": 200, "message": "Sub-agent updated successfully",
+            "agentId": agent_id, "name": arguments.get("name", ""), "systemPrompt": arguments.get("systemPrompt", ""),
+            "modelId": arguments.get("modelId", ""), "lambdaTools": arguments.get("lambdaTools", [])}
 
 
 def handle_delete_sub_agent(arguments: dict, event: dict) -> dict:
