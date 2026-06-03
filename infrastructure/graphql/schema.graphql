@@ -135,6 +135,7 @@ type GuardrailTool @aws_cognito_user_pools @aws_api_key {
   guardrailId: String!
   description: String
   status: String
+  fullSDKResponse: AWSJSON
   createdAt: AWSDateTime
   updatedAt: AWSDateTime
 }
