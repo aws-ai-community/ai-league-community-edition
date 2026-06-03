@@ -10,6 +10,7 @@ import Select, { SelectProps } from '@cloudscape-design/components/select';
 import Button from '@cloudscape-design/components/button';
 import Toggle from '@cloudscape-design/components/toggle';
 import Flashbar, { FlashbarProps } from '@cloudscape-design/components/flashbar';
+import Alert from '@cloudscape-design/components/alert';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Box from '@cloudscape-design/components/box';
 import Table from '@cloudscape-design/components/table';
@@ -594,6 +595,12 @@ export default function AgentBuilderPage() {
   return (
     <SpaceBetween size="l">
       <Header variant="h1">Agent Builder</Header>
+
+      <Alert type="warning" header="Wealth Warning">
+        Amazon Nova and third-party models (DeepSeek, Llama, Mistral) may be covered by AWS
+        credits but it is your responsibility to confirm. Claude models are explicitly NOT
+        covered by AWS credits. You are responsible for all LLM costs incurred.
+      </Alert>
 
       <Flashbar items={flashItems} />
 
