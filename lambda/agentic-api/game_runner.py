@@ -506,6 +506,7 @@ def run_game_session_v2(
     navigation_prompt: str = "",
     agent_response: str = "",
     user_prompt: str = "",
+    invoke_payload: Dict[str, Any] = None,
 ) -> Dict[str, Any]:
     """Run a game session with AgentCore Runtime invocations and incremental flush.
 
@@ -709,6 +710,7 @@ def run_game_session_v2(
                     # Invoke AgentCore for answer
                     try:
                         challenge_payload = {
+                            **(invoke_payload or {}),
                             "prompt": question,
                             "task_type": "challenge",
                             "session_id": session_id,
@@ -791,6 +793,7 @@ def run_game_session_v2(
                 # Invoke AgentCore for answer
                 try:
                     challenge_payload = {
+                        **(invoke_payload or {}),
                         "prompt": question,
                         "task_type": "challenge",
                         "session_id": session_id,
@@ -883,6 +886,7 @@ def run_game_session_v2(
                 # Invoke AgentCore for answer
                 try:
                     challenge_payload = {
+                        **(invoke_payload or {}),
                         "prompt": question,
                         "task_type": "challenge",
                         "session_id": session_id,
@@ -899,6 +903,13 @@ def run_game_session_v2(
                 is_correct = grade_response(answer, expected, strategy, cell)
                 challenges_visited += 1
                 consumed_tiles.add(pos_key)
+
+                # Emit AnswerChallenge so the combat log shows the agent's response
+                game_events.append({
+                    "type": "AnswerChallenge",
+                    "message": answer[:500] if answer else "(no response)",
+                    "position": {"row": r, "col": c},
+                })
 
                 if is_correct:
                     challenge_points += pts

@@ -312,6 +312,13 @@ export default function GameplayPage() {
       setVisitCounts((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
     }
 
+    // Consume tile when challenge/pickup events are processed (tile disappears when avatar lands)
+    if (pos && (event.type === 'WinChallenge' || event.type === 'LoseChallenge' ||
+        event.type === 'WinNonPromptChallenge' || event.type === 'LoseNonPromptChallenge')) {
+      const key = `${pos.row},${pos.col}`;
+      setConsumedTiles((prev) => new Set([...prev, key]));
+    }
+
     // Update score on win events
     if (event.type === 'WinChallenge' || event.type === 'WinNonPromptChallenge') {
       if (event.scoreAfter !== undefined) {
@@ -415,8 +422,9 @@ export default function GameplayPage() {
           }
         }
 
-        // Parse consumed tiles
-        if (session.consumedTiles) {
+        // Parse consumed tiles — only used as catch-up when replay completes
+        // During replay, tiles are consumed per-event in processEventRef
+        if (session.consumedTiles && (session.status === 'completed' || session.status === 'complete' || session.status === 'game_over')) {
           try {
             const tiles: string[] = JSON.parse(session.consumedTiles);
             setConsumedTiles(new Set(tiles));

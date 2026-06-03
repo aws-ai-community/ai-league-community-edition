@@ -146,6 +146,7 @@ def handler(event, context):
             navigation_prompt=navigation_prompt,
             agent_response=agent_response,
             user_prompt=user_prompt,
+            invoke_payload=invoke_payload,
         )
 
         # Step 5: Persist final results
