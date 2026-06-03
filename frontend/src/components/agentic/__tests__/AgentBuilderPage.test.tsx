@@ -104,7 +104,9 @@ describe('AgentBuilderPage', () => {
     const { container } = render(<AgentBuilderPage />);
 
     // Wait for initial async load to complete (Promise.all + state updates)
-    await screen.findByText('Path Planner');
+    await waitFor(() => {
+      expect(container.textContent).toContain('Path Planner');
+    });
 
     expect(mockGetSupervisorAgent).toHaveBeenCalledTimes(1);
     expect(mockListSubAgents).toHaveBeenCalledTimes(1);
