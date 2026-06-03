@@ -127,11 +127,11 @@ describe('AgentBuilderPage', () => {
     render(<AgentBuilderPage />);
 
     await waitFor(() => {
-      expect(mockGetSupervisorAgent).toHaveBeenCalledTimes(1);
+      const prompt = screen.getByLabelText('System prompt') as HTMLTextAreaElement;
+      expect(prompt.value).toBe('Help users solve map challenges.');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
     await waitFor(() => {
       expect(mockUpdateSupervisorAgent).toHaveBeenCalledTimes(1);
     });
