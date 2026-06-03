@@ -422,16 +422,8 @@ export default function GameplayPage() {
           }
         }
 
-        // Parse consumed tiles — only used as catch-up when replay completes
-        // During replay, tiles are consumed per-event in processEventRef
-        if (session.consumedTiles && (session.status === 'completed' || session.status === 'complete' || session.status === 'game_over')) {
-          try {
-            const tiles: string[] = JSON.parse(session.consumedTiles);
-            setConsumedTiles(new Set(tiles));
-          } catch {
-            // Ignore parse errors
-          }
-        }
+        // Tiles are consumed exclusively during event replay processing in processEventRef
+        // No bulk-set from polling — this ensures tiles disappear in sync with avatar movement
 
         // Get new events since last poll
         const newEvents = events.slice(processedEventCountRef.current);
