@@ -40,6 +40,7 @@ describe('NavigationPanel', () => {
       { text: 'Leaderboard', href: '/leaderboard' },
       { text: 'Submission History', href: '/submission-history' },
       { text: 'Configuration', href: '/configuration' },
+      { text: 'Agent Builder', href: '/agent-builder' },
       { text: 'Agentic Workshop', href: 'https://catalog.us-east-1.prod.workshops.aws/workshops/0c1f072b-ebd1-4d8d-9340-dd47479481c0/en-US/introduction' },
       { text: 'Builder Center', href: 'https://builder.aws.com/connect/space/7e5f51ef-0919-32da-aaa7-ddf263651d69/aws-ai-league' },
       { text: 'Builder Center (Community)', href: 'https://builder.aws.com/connect/space/7148b02a-ef8c-3a67-97c9-53be6bd54999/ai-community' },
@@ -53,7 +54,7 @@ describe('NavigationPanel', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(13);
+    expect(links).toHaveLength(14);
 
     links.forEach((link, index) => {
       expect(link).toHaveTextContent(expectedLinks[index].text);
@@ -65,7 +66,7 @@ describe('NavigationPanel', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    // Filter to only external links (skip internal links: Map Builder, Game Play, Leaderboard, Submission History, Configuration)
+    // Filter to only external links (skip internal links: Map Builder, Game Play, Leaderboard, Submission History, Configuration, Agent Builder)
     const externalLinks = links.filter((link) => link.getAttribute('data-external') === 'true');
     expect(externalLinks).toHaveLength(8);
 
@@ -76,13 +77,13 @@ describe('NavigationPanel', () => {
   });
 
   describe('navigationItems data structure', () => {
-    it('contains exactly 14 items (5 internal links + 1 divider + 8 external links)', () => {
-      expect(navigationItems).toHaveLength(14);
+    it('contains exactly 15 items (6 internal links + 1 divider + 8 external links)', () => {
+      expect(navigationItems).toHaveLength(15);
     });
 
     it('all link items have correct type', () => {
       const linkItems = navigationItems.filter((item) => item.type === 'link');
-      expect(linkItems).toHaveLength(13);
+      expect(linkItems).toHaveLength(14);
     });
 
     it('external link items have external true', () => {
@@ -99,6 +100,7 @@ describe('NavigationPanel', () => {
         'Leaderboard',
         'Submission History',
         'Configuration',
+        'Agent Builder',
         'Agentic Workshop',
         'Builder Center',
         'Builder Center (Community)',

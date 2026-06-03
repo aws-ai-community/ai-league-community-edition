@@ -34,6 +34,38 @@ A full-stack web application for AWS AI League participants to practice and coll
   - Amazon Nova (Micro, Lite, Pro), DeepSeek, Meta Llama, Mistral, and Anthropic Claude families
   - Wealth warning about AWS credits coverage and cost responsibility
 
+### Agent Builder (Phase 2)
+- **Agent Builder Page** — Configure supervisor agents, sub-agents, and tools from a single UI
+  - Supervisor agent configuration: name, system prompt, model selection
+  - Sub-agent management: create, edit, delete with their own model/prompt/tools
+  - Tool attachments: Lambda tools, memory, guardrail on supervisor or sub-agents
+  - Wealth warning banner about AWS credits and Anthropic model costs
+- **AgentCore Runtime Integration** — Full agent orchestration via Amazon Bedrock AgentCore
+  - Supervisor agent delegates pathfinding to sub-agent via Strands SDK tool_use
+  - Sub-agent calls Pathfinder Lambda via AgentCore Gateway (MCP protocol)
+  - Container-based runtime built via CodeBuild, pushed to ECR, deployed as AgentCore Runtime
+  - Direct MCP tool call fallback for reliable pathfinding (bypasses LLM truncation)
+  - Retry on empty response for cold-start resilience (up to 3 attempts)
+- **Gameplay Integration** — Animated game replay with AgentCore agent responses
+  - Full navigation prompt shown in combat log (fixed preamble + user prompt)
+  - Challenge Q&A shown in combat log (AskChallenge → AnswerChallenge → Win/LoseChallenge)
+  - Tile consumption synced with avatar movement during replay animation
+  - Avatar moves onto wall tile before game-over
+  - Planned path overlay shown before replay starts
+- **Model Selection** — Amazon Nova (Micro, Lite, Pro), DeepSeek, Meta Llama, Mistral, Anthropic Claude
+  - Claude models marked with ⚠️ "not covered by AWS credits" warning
+  - Default: Amazon Nova Lite (covered by AWS credits)
+- **Lambda Tool Registration** — Register existing Lambda ARNs as agent tools
+  - Default **Pathfinder** tool: BFS with swift (shortest path) and get_coins (greedy coin collection) strategies
+- **Memory Tool Management** — Create and attach memory instances for persistent agent recall
+- **Guardrail Management** — Create and edit guardrails with:
+  - Content policy filters (VIOLENCE, HATE, SEXUAL, INSULTS) with per-category strength
+  - Topic policy deny list with custom topics and sample phrases
+  - Configurable blocked input/output messaging
+  - Guardrail grading: only active guardrail intervention counts as success (empty response = failure)
+- **Agent Versioning** — Versions captured on leaderboard submission with score and config history
+- **Cognito Authentication** — Per-user agent configurations; Phase 2 mutations require JWT auth
+
 ### Game Engine Backend
 - AppSync GraphQL API with API Key authentication
 - Python Lambda resolver handling all game logic
@@ -50,14 +82,23 @@ Browser → CloudFront → S3 (static assets + settings.json + aws-exports.json)
                      → API Gateway /api/* → Lambda (Node.js) → DynamoDB (Maps, Profiles)
                      → AppSync GraphQL → Lambda (Python) → DynamoDB (GameSessions, Leaderboard, Submissions, AgentConfigurations)
                                                          → Amazon Bedrock (LLM invocations)
+                                                         → Game Runner Lambda (async, 10-min timeout)
+                                                             → AgentCore Runtime (container)
+                                                                 → Strands Agent (supervisor)
+                                                                     → Sub-agent tool → Strands Agent (pathfinder)
+                                                                         → AgentCore Gateway (MCP)
+                                                                             → Pathfinder Lambda (BFS)
 
+AgentCore Runtime: ECR container built via CodeBuild, deployed as BedrockAgentCore Runtime
+AgentCore Gateway: MCP protocol bridge to Lambda tools (Pathfinder)
 Cognito User Pool (authentication)
-Custom Resource Lambda (admin account seeding)
+Custom Resource Lambdas (admin seeding, container build trigger)
 ```
 
 - **Frontend**: Vite + React 19 + TypeScript + CloudScape components
 - **REST Backend**: API Gateway + Lambda (Node.js 22) + DynamoDB
 - **GraphQL Backend**: AppSync + Lambda (Python 3.12) + DynamoDB + Amazon Bedrock
+- **Agent Runtime**: AgentCore Runtime (Python container) + Strands SDK + MCP
 - **Auth**: Amazon Cognito (SRP auth flow, no client secret)
 - **Hosting**: S3 + CloudFront (HTTPS, SPA routing)
 - **Infrastructure**: AWS CDK v2 (TypeScript)
@@ -131,6 +172,7 @@ ai-league-community-edition/
 │   │   │   │   ├── pathValidation.ts
 │   │   │   │   └── tileData.ts
 │   │   │   └── agentic/      # Agentic Game Engine pages
+│   │   │       ├── AgentBuilderPage.tsx
 │   │   │       ├── GameplayPage.tsx
 │   │   │       ├── LeaderboardPage.tsx
 │   │   │       ├── SubmissionHistoryPage.tsx
@@ -161,14 +203,28 @@ ai-league-community-edition/
 │   ├── admin-seed/index.ts   # Admin account seeding (Custom Resource)
 │   ├── profile-api/index.ts  # GET/PUT /profile handler
 │   ├── maps-api/index.ts     # Maps CRUD handler
-│   └── agentic-api/          # Agentic Game Engine (Python)
-│       ├── index.py          # AppSync resolver router
-│       ├── game_runner.py    # Game session orchestration
-│       ├── score_calculator.py
-│       ├── challenge_grader.py
-│       ├── challenge_generator.py
-│       ├── config_utils.py   # LLM configuration resolution
-│       └── tests/            # Python property-based tests (hypothesis)
+│   ├── agent-runtime/        # AgentCore container (Python)
+│   │   ├── Dockerfile
+│   │   ├── main_agent.py     # AgentCore Runtime entrypoint
+│   │   ├── orchestrator_agent.py  # Supervisor agent with sub-agent tools
+│   │   ├── sub_agent.py      # Sub-agent with direct MCP pathfinder call
+│   │   ├── agent_utils.py    # Region config, STS, SageMaker helpers
+│   │   └── requirements.txt  # strands-agents, bedrock-agentcore, mcp
+│   ├── agentic-api/          # Agentic Game Engine (Python)
+│   │   ├── index.py          # AppSync resolver router
+│   │   ├── game_runner.py    # Game session orchestration (v1 + v2)
+│   │   ├── game_runner_handler.py  # Async game runner Lambda
+│   │   ├── agent_config_handlers.py  # CRUD for supervisor/sub-agents/tools
+│   │   ├── agentcore_client.py  # AgentCore Runtime invocation client
+│   │   ├── path_parser.py    # Parse agent response into navigation path
+│   │   ├── prompt_formatter.py  # Build navigation prompt from map data
+│   │   ├── score_calculator.py
+│   │   ├── challenge_grader.py
+│   │   ├── challenge_generator.py
+│   │   ├── config_utils.py   # LLM configuration resolution
+│   │   └── tests/            # Python property-based tests (hypothesis)
+│   └── pathfinder-tool/      # Pathfinder Lambda tool
+│       └── index.py          # BFS pathfinding (swift + get_coins strategies)
 ├── tests/                    # Frontend test suites
 │   ├── unit/                 # Example-based unit tests
 │   └── property/             # Property-based tests (fast-check)
@@ -200,8 +256,8 @@ This removes all deployed resources including the Cognito User Pool, DynamoDB ta
 
 ## Roadmap
 
-- **Phase 2**: Agent Builder — AgentCore integration, sub-agents, Lambda tools, real-time WebSocket events
-- **Phase 3**: Tools & Config — Memory Manager, Guardrail Configurator, Code Editor
+- ~~**Phase 2**: Agent Builder — AgentCore integration, sub-agents, Lambda tools, memory, guardrails~~ ✅
+- **Phase 3**: Tools & Config — Lambda function creation via SageMaker Code Editor, advanced guardrail templates
 - **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
 ## License

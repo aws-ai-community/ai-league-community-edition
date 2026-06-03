@@ -9,11 +9,12 @@ import Grid from '@cloudscape-design/components/grid';
 import Box from '@cloudscape-design/components/box';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Alert from '@cloudscape-design/components/alert';
+import Link from '@cloudscape-design/components/link';
 import Modal from '@cloudscape-design/components/modal';
 
 import { useAuth } from '../../contexts/AuthProvider';
 import { listMaps, getMap as getMapFromApi, MapDocument } from '../../services/mapsApi';
-import { invokeAgentCoreRuntime, getGameSession, submitToLeaderboard } from '../../services/graphqlClient';
+import { invokeAgentCoreRuntime, getGameSession, submitToLeaderboard, createModel, getAgentCoreRuntime } from '../../services/graphqlClient';
 import { TILE_SPRITES, TileKey } from '../map-builder/tileData';
 import { PREDEFINED_MAPS, PredefinedMap } from '../../data/predefinedMaps';
 import championSprite from '../../assets/sprites/avatar.png';
@@ -82,47 +83,9 @@ interface CombatLogEntry {
   color: string;
 }
 
-/**
- * BFS pathfinding from start position to the nearest treasure tile.
- * Returns the path as an array of [row, col] pairs, or null if no path exists.
- */
-function computeBfsPath(grid: string[][], startRow: number, startCol: number): [number, number][] | null {
-  const rows = grid.length;
-  const cols = rows > 0 ? grid[0].length : 0;
-  if (rows === 0 || cols === 0) return null;
-
-  const visited = new Set<string>();
-  const queue: { row: number; col: number; path: [number, number][] }[] = [];
-  const startKey = `${startRow},${startCol}`;
-  visited.add(startKey);
-  queue.push({ row: startRow, col: startCol, path: [[startRow, startCol]] });
-
-  const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-
-    // Check if we reached treasure
-    if (grid[current.row][current.col] === 'treasure') {
-      return current.path;
-    }
-
-    for (const [dr, dc] of directions) {
-      const nr = current.row + dr;
-      const nc = current.col + dc;
-      const key = `${nr},${nc}`;
-
-      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
-      if (visited.has(key)) continue;
-      if (grid[nr][nc] === 'wall') continue;
-
-      visited.add(key);
-      queue.push({ row: nr, col: nc, path: [...current.path, [nr, nc]] });
-    }
-  }
-
-  return null; // No path to treasure
-}
+// NOTE: computeBfsPath removed — Phase 2 delegates pathfinding to the server-side AgentCore Runtime.
+// If the user manually enters a path in the textarea (starting with '['), it is passed directly
+// to the backend as a Phase 1 override. No client-side BFS computation is needed.
 
 /**
  * Helper to extract row/col from a game event.
@@ -319,6 +282,8 @@ export default function GameplayPage() {
         return { type: event.type, message: `Q: ${event.question || event.message || 'Unknown question'}`, color: '#2196f3' };
       case 'AnswerChallenge':
         return { type: event.type, message: `A: ${event.response || event.answer || event.message || 'No response'}`, color: '#2196f3' };
+      case 'InputPrompt':
+        return { type: event.type, message: `Prompt: ${event.message || ''}`, color: '#9c27b0' };
       case 'WinChallenge':
         return { type: event.type, message: `✓ Correct! +${event.points || event.challengePoints || 0} points`, color: '#4caf50' };
       case 'LoseChallenge':
@@ -345,6 +310,13 @@ export default function GameplayPage() {
       setChampionPos([pos.row, pos.col]);
       const key = `${pos.row},${pos.col}`;
       setVisitCounts((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+    }
+
+    // Consume tile when challenge/pickup events are processed (tile disappears when avatar lands)
+    if (pos && (event.type === 'WinChallenge' || event.type === 'LoseChallenge' ||
+        event.type === 'WinNonPromptChallenge' || event.type === 'LoseNonPromptChallenge')) {
+      const key = `${pos.row},${pos.col}`;
+      setConsumedTiles((prev) => new Set([...prev, key]));
     }
 
     // Update score on win events
@@ -450,15 +422,8 @@ export default function GameplayPage() {
           }
         }
 
-        // Parse consumed tiles
-        if (session.consumedTiles) {
-          try {
-            const tiles: string[] = JSON.parse(session.consumedTiles);
-            setConsumedTiles(new Set(tiles));
-          } catch {
-            // Ignore parse errors
-          }
-        }
+        // Tiles are consumed exclusively during event replay processing in processEventRef
+        // No bulk-set from polling — this ensures tiles disappear in sync with avatar movement
 
         // Get new events since last poll
         const newEvents = events.slice(processedEventCountRef.current);
@@ -540,29 +505,8 @@ export default function GameplayPage() {
       const mapOption = mapOptions.find((m) => m.value === selectedMap.value);
       if (!mapOption) throw new Error('Map not found');
 
-      const mapId = mapOption.value;
-
-      // Auto-generate navigation path using BFS from start to treasure
-      let pathJson: string;
-      if (navigationPrompt.trim().startsWith('[')) {
-        pathJson = navigationPrompt.trim();
-      } else {
-        const autoPath = computeBfsPath(mapData.grid, mapData.startRow, mapData.startCol);
-        if (!autoPath || autoPath.length === 0) {
-          throw new Error('No valid path found from start to treasure. Ensure the map has a reachable treasure tile.');
-        }
-        pathJson = JSON.stringify(autoPath);
-      }
-
       // For predefined maps, pass map data inline to the backend
       // For saved maps, the backend loads from DynamoDB
-      // Both flows create a real DynamoDB session for consistent leaderboard/submission behavior
-      const path: [number, number][] = JSON.parse(pathJson);
-
-      // Set planned path immediately so the overlay shows BEFORE avatar moves
-      setPlannedPath(path.map(([row, col]) => ({ row, col })));
-
-      // Build inline map data for predefined maps
       let inlineMapData: string | undefined;
       if (mapOption.type === 'predefined') {
         const idx = parseInt(mapOption.value.replace('predefined-', ''), 10);
@@ -582,15 +526,25 @@ export default function GameplayPage() {
         });
       }
 
+      // Pass user's prompt text to the agent (e.g., "use strategy swift")
+      const navigationPath = navigationPrompt.trim();
+
       const result = await invokeAgentCoreRuntime({
         mapId: mapOption.value,
-        navigationPath: pathJson,
+        navigationPath,
         mapData: inlineMapData,
       });
 
       const sid = result.InvokeAgentCoreRuntime.sessionId;
       if (sid === 'error') {
-        throw new Error(result.InvokeAgentCoreRuntime.message || 'Failed to start game session');
+        const msg = result.InvokeAgentCoreRuntime.message || 'Failed to start game session';
+        // Check if this is a "no agent configured" error and show banner with link
+        if (msg.toLowerCase().includes('no agent configured')) {
+          setError(`NO_AGENT_CONFIGURED:${msg}`);
+        } else {
+          throw new Error(msg);
+        }
+        return;
       }
       setSessionId(sid);
       setPhase('playing');
@@ -600,7 +554,7 @@ export default function GameplayPage() {
       setTimer(mapData.timeLimit);
       setCombatLog([{ type: 'info', message: `Game started! Session: ${sid}`, color: '#aaa' }]);
 
-      // Start polling for events
+      // Start polling for events immediately after invocation returns sessionId
       startPolling(sid);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start game');
@@ -614,10 +568,36 @@ export default function GameplayPage() {
     if (!sessionId || !selectedMap) return;
 
     setIsSubmitting(true);
+    setError(null);
     try {
+      // Step 1: Get the agent runtime ARN
+      const runtimeResponse = await getAgentCoreRuntime();
+      const runtimeArn = runtimeResponse.GetAgentCoreRuntime.runtimeArn;
+      if (!runtimeArn) {
+        setError('Please configure your agent before submitting');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Step 2: Register the runtime as a model entry (required for submission)
+      const modelResponse = await createModel({
+        name: 'Agent Run',
+        resourceIdentifier: runtimeArn,
+        type: 'AGENTCORE_RUNTIME',
+      });
+
+      if (!modelResponse.CreateModel.success || !modelResponse.CreateModel.modelId) {
+        setError(modelResponse.CreateModel.message || 'Model registration failed. Cannot submit without a registered model.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const modelId = modelResponse.CreateModel.modelId;
+
+      // Step 3: Submit to leaderboard with required modelId
       const mapOption = mapOptions.find((m) => m.value === selectedMap.value);
       const leaderboardId = `map#${mapOption?.value || selectedMap.value}`;
-      await submitToLeaderboard(leaderboardId, sessionId);
+      await submitToLeaderboard(leaderboardId, sessionId, modelId);
       setSubmitSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit to leaderboard');
@@ -691,140 +671,146 @@ export default function GameplayPage() {
     const cellSize = maxCells <= 5 ? 64 : maxCells <= 8 ? 48 : 36;
 
     return (
-      <div
-        style={{
-          display: 'inline-grid',
-          gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
-          gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
-          gap: 1,
-          backgroundColor: '#333',
-          border: '1px solid #444',
-          borderRadius: 4,
-          padding: 1,
-        }}
-        role="grid"
-        aria-label="Game map grid"
-      >
-        {grid.map((row, rowIdx) =>
-          row.map((tileKey, colIdx) => {
-            const isChampion = championPos && championPos[0] === rowIdx && championPos[1] === colIdx;
-            const posKey = `${rowIdx},${colIdx}`;
-            const isConsumed = consumedTiles.has(posKey);
-            const visitCount = visitCounts[posKey] || 0;
-            const onPath = isOnPlannedPath(rowIdx, colIdx);
-            const spriteKey = tileKey as TileKey;
-            const sprite = TILE_SPRITES[spriteKey];
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        <div
+          style={{
+            display: 'inline-grid',
+            gridTemplateColumns: `repeat(${cols}, ${cellSize}px)`,
+            gridTemplateRows: `repeat(${rows}, ${cellSize}px)`,
+            gap: 1,
+            backgroundColor: '#333',
+            border: '1px solid #444',
+            borderRadius: 4,
+            padding: 1,
+          }}
+          role="grid"
+          aria-label="Game map grid"
+        >
+          {grid.map((row, rowIdx) =>
+            row.map((tileKey, colIdx) => {
+              const posKey = `${rowIdx},${colIdx}`;
+              const isConsumed = consumedTiles.has(posKey);
+              const visitCount = visitCounts[posKey] || 0;
+              const onPath = isOnPlannedPath(rowIdx, colIdx);
+              const spriteKey = tileKey as TileKey;
+              const sprite = TILE_SPRITES[spriteKey];
 
-            // If tile is consumed, show as normal tile
-            const effectiveTileKey = isConsumed ? 'normal' : tileKey;
-            const effectiveSprite = isConsumed ? TILE_SPRITES['normal'] : sprite;
+              // If tile is consumed, show as normal tile
+              const effectiveTileKey = isConsumed ? 'normal' : tileKey;
+              const effectiveSprite = isConsumed ? TILE_SPRITES['normal'] : sprite;
 
-            return (
-              <div
-                key={`${rowIdx}-${colIdx}`}
-                role="gridcell"
-                aria-label={`Cell ${rowIdx},${colIdx}: ${tileKey}${isChampion ? ' (champion)' : ''}`}
-                style={{
-                  width: cellSize,
-                  height: cellSize,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  backgroundImage: effectiveTileKey === 'wall' ? 'none' : `url(${NORMAL_BG})`,
-                  backgroundSize: 'cover',
-                  border: isChampion ? '2px solid #00e5ff' : '1px solid #3a3a4a',
-                  boxShadow: isChampion ? '0 0 8px rgba(0,229,255,0.8)' : undefined,
-                  borderRadius: 2,
-                  boxSizing: 'border-box',
-                  position: 'relative',
-                  transition: 'box-shadow 0.3s ease',
-                }}
-              >
-                {/* Render wall sprite full-size */}
-                {effectiveTileKey === 'wall' && effectiveSprite && (
-                  <img
-                    src={effectiveSprite}
-                    alt={effectiveTileKey}
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      imageRendering: 'pixelated',
-                      pointerEvents: 'none',
-                      userSelect: 'none',
-                    }}
-                    draggable={false}
-                  />
-                )}
+              return (
+                <div
+                  key={`${rowIdx}-${colIdx}`}
+                  role="gridcell"
+                  aria-label={`Cell ${rowIdx},${colIdx}: ${tileKey}`}
+                  style={{
+                    width: cellSize,
+                    height: cellSize,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundImage: effectiveTileKey === 'wall' ? 'none' : `url(${NORMAL_BG})`,
+                    backgroundSize: 'cover',
+                    border: '1px solid #3a3a4a',
+                    borderRadius: 2,
+                    boxSizing: 'border-box',
+                    position: 'relative',
+                  }}
+                >
+                  {/* Render wall sprite full-size */}
+                  {effectiveTileKey === 'wall' && effectiveSprite && (
+                    <img
+                      src={effectiveSprite}
+                      alt={effectiveTileKey}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        imageRendering: 'pixelated',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                      }}
+                      draggable={false}
+                    />
+                  )}
 
-                {/* Render non-wall, non-normal sprites on top of normal background */}
-                {effectiveTileKey !== 'wall' && effectiveTileKey !== 'normal' && !isChampion && effectiveSprite && (
-                  <img
-                    src={effectiveSprite}
-                    alt={effectiveTileKey}
-                    style={{
-                      width: '85%',
-                      height: '85%',
-                      objectFit: 'contain',
-                      imageRendering: 'pixelated',
-                      pointerEvents: 'none',
-                      userSelect: 'none',
-                    }}
-                    draggable={false}
-                  />
-                )}
+                  {/* Render non-wall, non-normal sprites on top of normal background */}
+                  {effectiveTileKey !== 'wall' && effectiveTileKey !== 'normal' && effectiveSprite && (
+                    <img
+                      src={effectiveSprite}
+                      alt={effectiveTileKey}
+                      style={{
+                        width: '85%',
+                        height: '85%',
+                        objectFit: 'contain',
+                        imageRendering: 'pixelated',
+                        pointerEvents: 'none',
+                        userSelect: 'none',
+                      }}
+                      draggable={false}
+                    />
+                  )}
 
-                {/* Render champion sprite on top */}
-                {isChampion && (
-                  <img
-                    src={championSprite}
-                    alt="champion"
-                    style={{
-                      position: 'relative',
-                      width: cellSize,
-                      height: cellSize,
-                      objectFit: 'cover',
-                      imageRendering: 'pixelated',
-                      zIndex: 10,
-                    }}
-                    draggable={false}
-                  />
-                )}
+                  {/* Path overlay: visited tiles get white semi-transparent layer */}
+                  {visitCount > 0 && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        backgroundColor: `rgba(255, 255, 255, ${Math.min(visitCount * 0.1, 0.7)})`,
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                      }}
+                    />
+                  )}
 
-                {/* Path overlay: visited tiles get white semi-transparent layer */}
-                {visitCount > 0 && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      backgroundColor: `rgba(255, 255, 255, ${Math.min(visitCount * 0.1, 0.7)})`,
-                      pointerEvents: 'none',
-                      zIndex: 5,
-                    }}
-                  />
-                )}
+                  {/* Planned path overlay: show path before replay starts */}
+                  {onPath && visitCount === 0 && phase === 'playing' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        backgroundColor: 'rgba(0, 229, 255, 0.15)',
+                        pointerEvents: 'none',
+                        zIndex: 4,
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
 
-                {/* Planned path overlay: show path before replay starts */}
-                {onPath && visitCount === 0 && phase === 'playing' && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      backgroundColor: 'rgba(0, 229, 255, 0.15)',
-                      pointerEvents: 'none',
-                      zIndex: 4,
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })
+        {/* Champion sprite rendered as absolutely-positioned overlay */}
+        {championPos && (
+          <img
+            src={championSprite}
+            alt="champion"
+            style={{
+              position: 'absolute',
+              top: championPos[0] * (cellSize + 1) + 1,
+              left: championPos[1] * (cellSize + 1) + 1,
+              width: cellSize,
+              height: cellSize,
+              objectFit: 'cover',
+              imageRendering: 'pixelated',
+              zIndex: 20,
+              border: '2px solid #00e5ff',
+              boxShadow: '0 0 8px rgba(0,229,255,0.8)',
+              borderRadius: 2,
+              boxSizing: 'border-box',
+              pointerEvents: 'none',
+            }}
+            draggable={false}
+          />
         )}
       </div>
     );
@@ -864,7 +850,14 @@ export default function GameplayPage() {
     <SpaceBetween size="l">
       <Header variant="h1">Game Play</Header>
 
-      {error && (
+      {error && error.startsWith('NO_AGENT_CONFIGURED:') && (
+        <Alert type="warning" dismissible onDismiss={() => setError(null)}>
+          {error.replace('NO_AGENT_CONFIGURED:', '')}{' '}
+          <Link href="/agent-builder">Go to Agent Builder</Link>
+        </Alert>
+      )}
+
+      {error && !error.startsWith('NO_AGENT_CONFIGURED:') && (
         <Alert type="error" dismissible onDismiss={() => setError(null)}>
           {error}
         </Alert>
@@ -890,8 +883,9 @@ export default function GameplayPage() {
                 <Textarea
                   value={navigationPrompt}
                   onChange={({ detail }) => setNavigationPrompt(detail.value)}
-                  placeholder="Optional: Enter a JSON path like [[0,0],[0,1],[1,1]] or leave empty for auto-pathfinding to treasure"
-                  rows={4}
+                  placeholder="e.g., use strategy swift"
+                  rows={2}
+                  ariaLabel="Navigation Prompt"
                 />
 
                 <Button

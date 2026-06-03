@@ -4,6 +4,7 @@ import {
   CognitoUserSession,
 } from 'amazon-cognito-identity-js';
 import { loadConfig } from '../config';
+import { setAuthTokenGetter } from '../services/graphqlClient';
 
 export interface AuthUser {
   email: string;
@@ -166,6 +167,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     getAccessToken,
     changePassword,
   };
+
+  // Register the auth token getter with the graphqlClient module so it can access JWT tokens.
+  // This bridges the React context to the non-React graphqlClient module.
+  useEffect(() => {
+    setAuthTokenGetter(getAccessToken);
+    return () => {
+      setAuthTokenGetter(null);
+    };
+  }, [getAccessToken]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

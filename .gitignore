@@ -6,6 +6,8 @@ dist-node/
 
 # CDK
 cdk.out/
+cdk-out-*/
+cdk-deploy-out/
 cdk.context.json
 
 # IDE and tools
