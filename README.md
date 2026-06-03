@@ -21,7 +21,7 @@ A full-stack web application for AWS AI League participants to practice and coll
 - Predefined competition maps (CB/Hero, London R1, London Finales) with pre-populated challenges
 - Clipboard export for sharing map definitions
 
-### Agentic Game Engine (Phase 1)
+### Agentic Game Engine
 - **Gameplay Page** — Play dungeon maps with animated champion movement, real-time combat log, and score tracking
   - Map selection from saved maps and predefined competition maps
   - Navigation prompt input for AI agent pathfinding
@@ -33,8 +33,6 @@ A full-stack web application for AWS AI League participants to practice and coll
 - **Configuration Page** — LLM model selection per purpose (challenge generation, grading, commentary)
   - Amazon Nova (Micro, Lite, Pro), DeepSeek, Meta Llama, Mistral, and Anthropic Claude families
   - Wealth warning about AWS credits coverage and cost responsibility
-
-### Agent Builder (Phase 2)
 - **Agent Builder Page** — Configure supervisor agents, sub-agents, and tools from a single UI
   - Supervisor agent configuration: name, system prompt, model selection
   - Sub-agent management: create, edit, delete with their own model/prompt/tools
@@ -256,7 +254,6 @@ This removes all deployed resources including the Cognito User Pool, DynamoDB ta
 
 ## Roadmap
 
-- ~~**Phase 2**: Agent Builder — AgentCore integration, sub-agents, Lambda tools, memory, guardrails~~ ✅
 - **Phase 3**: Tools & Config — Lambda function creation via SageMaker Code Editor, advanced guardrail templates
 - **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
