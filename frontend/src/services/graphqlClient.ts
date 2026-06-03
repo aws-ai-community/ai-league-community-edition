@@ -362,6 +362,7 @@ export interface GuardrailToolConfig {
   guardrailId: string;
   description?: string;
   status?: string;
+  fullSDKResponse?: Record<string, unknown>;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -487,6 +488,7 @@ export async function listGuardrailTools(): Promise<{ ListGuardrail: GuardrailTo
         guardrailId
         description
         status
+        fullSDKResponse
         createdAt
         updatedAt
       }

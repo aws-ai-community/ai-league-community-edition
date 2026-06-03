@@ -161,6 +161,7 @@ export default function AgentBuilderPage() {
   const [savingGuardrail, setSavingGuardrail] = useState(false);
   const [deleteGuardrailToolId, setDeleteGuardrailToolId] = useState<string | null>(null);
   const [deletingGuardrailTool, setDeletingGuardrailTool] = useState(false);
+  const [editingGuardrailToolId, setEditingGuardrailToolId] = useState<string | null>(null);
 
   // Version History state
   const [agentVersions, setAgentVersions] = useState<AgentVersionConfig[]>([]);
@@ -492,6 +493,11 @@ export default function AgentBuilderPage() {
     if (!guardrailFormName.trim()) return;
     setSavingGuardrail(true);
     try {
+      // If editing, delete the old guardrail first
+      if (editingGuardrailToolId) {
+        await deleteGuardrail(editingGuardrailToolId);
+      }
+
       const payload: { filtersConfig: { type: string; inputStrength: string; outputStrength: string }[]; topicsConfig?: { name: string; definition: string; inputAction: string; outputAction: string; samplePhrases: string[] }[] } = {
         filtersConfig: guardrailContentFilters
           .filter((f) => f.inputEnabled || f.outputEnabled)
@@ -518,8 +524,11 @@ export default function AgentBuilderPage() {
         blockedOutputsMessaging: guardrailFormBlockedOutput.trim() || undefined,
         contentPolicyConfig,
       });
-      addFlash('success', `Guardrail "${guardrailFormName}" created successfully.`);
+      addFlash('success', editingGuardrailToolId
+        ? `Guardrail "${guardrailFormName}" updated successfully.`
+        : `Guardrail "${guardrailFormName}" created successfully.`);
       resetGuardrailForm();
+      setEditingGuardrailToolId(null);
       setShowGuardrailModal(false);
       const res = await listGuardrailTools();
       setGuardrailTools(res.ListGuardrail || []);
@@ -979,12 +988,49 @@ export default function AgentBuilderPage() {
                             id: 'actions',
                             header: 'Actions',
                             cell: (item: GuardrailToolConfig) => (
-                              <Button
-                                variant="icon"
-                                iconName="remove"
-                                ariaLabel={`Delete ${item.name}`}
-                                onClick={() => setDeleteGuardrailToolId(item.toolId)}
-                              />
+                              <SpaceBetween direction="horizontal" size="xs">
+                                <Button
+                                  variant="icon"
+                                  iconName="edit"
+                                  ariaLabel={`Edit ${item.name}`}
+                                  onClick={() => {
+                                    // Pre-populate form with existing guardrail data
+                                    setGuardrailFormName(item.name || '');
+                                    setGuardrailFormDescription(item.description || '');
+                                    // Load content filters from fullSDKResponse if available
+                                    if (item.fullSDKResponse) {
+                                      const sdk = typeof item.fullSDKResponse === 'string' ? JSON.parse(item.fullSDKResponse) : item.fullSDKResponse;
+                                      setGuardrailFormBlockedInput(sdk.blockedInputMessaging || 'I cannot help with that request.');
+                                      setGuardrailFormBlockedOutput(sdk.blockedOutputsMessaging || 'I cannot help with that request.');
+                                      // Load content filters
+                                      const filters = sdk.contentPolicy?.filtersConfig || [];
+                                      if (filters.length > 0) {
+                                        setGuardrailContentFilters(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => ({
+                                          type: f.type || '',
+                                          inputStrength: f.inputStrength || 'HIGH',
+                                          outputStrength: f.outputStrength || 'HIGH',
+                                        })));
+                                      }
+                                      // Load deny topics
+                                      const topics = sdk.topicPolicy?.topicsConfig || [];
+                                      if (topics.length > 0) {
+                                        setGuardrailDenyTopics(topics.map((t: { name: string; definition: string }) => ({
+                                          name: t.name || '',
+                                          definition: t.definition || '',
+                                        })));
+                                      }
+                                    }
+                                    setEditingGuardrailToolId(item.toolId);
+                                    setShowGuardrailModal(true);
+                                  }}
+                                />
+                                <Button
+                                  variant="icon"
+                                  iconName="remove"
+                                  ariaLabel={`Delete ${item.name}`}
+                                  onClick={() => setDeleteGuardrailToolId(item.toolId)}
+                                />
+                              </SpaceBetween>
                             ),
                           },
                         ]}
@@ -996,7 +1042,7 @@ export default function AgentBuilderPage() {
                         }
                         variant="embedded"
                       />
-                      <Button variant="primary" onClick={() => setShowGuardrailModal(true)}>
+                      <Button variant="primary" onClick={() => { resetGuardrailForm(); setEditingGuardrailToolId(null); setShowGuardrailModal(true); }}>
                         Create Guardrail
                       </Button>
                     </SpaceBetween>
@@ -1134,11 +1180,11 @@ export default function AgentBuilderPage() {
         Are you sure you want to delete this guardrail? This action cannot be undone.
       </Modal>
 
-      {/* Create Guardrail Modal */}
+      {/* Create/Edit Guardrail Modal */}
       <Modal
         visible={showGuardrailModal}
         onDismiss={() => setShowGuardrailModal(false)}
-        header="Create Guardrail"
+        header={editingGuardrailToolId ? 'Edit Guardrail' : 'Create Guardrail'}
         size="large"
         footer={
           <Box float="right">
