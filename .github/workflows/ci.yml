@@ -29,6 +29,11 @@ jobs:
           USER_PROFILES_TABLE: TestUserProfiles
         run: npm test
 
+      - name: Run all five agentic page tests
+        env:
+          USER_PROFILES_TABLE: TestUserProfiles
+        run: npm test -- frontend/src/components/agentic/__tests__/{GameplayPage,LeaderboardPage,SubmissionHistoryPage,ConfigurationPage,AgentBuilderPage}.test.tsx
+
   infrastructure-tests:
     name: Infrastructure Tests
     runs-on: ubuntu-latest
