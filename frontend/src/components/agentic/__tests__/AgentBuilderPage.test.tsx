@@ -103,14 +103,15 @@ describe('AgentBuilderPage', () => {
   it('loads and renders core sections', async () => {
     const { container } = render(<AgentBuilderPage />);
 
-    await waitFor(() => {
-      expect(mockGetSupervisorAgent).toHaveBeenCalledTimes(1);
-      expect(mockListSubAgents).toHaveBeenCalledTimes(1);
-      expect(mockListLambdaTools).toHaveBeenCalledTimes(1);
-      expect(mockListMemoryTools).toHaveBeenCalledTimes(1);
-      expect(mockListGuardrailTools).toHaveBeenCalledTimes(1);
-      expect(mockListAgentVersions).toHaveBeenCalledTimes(1);
-    });
+    // Wait for initial async load to complete (Promise.all + state updates)
+    await screen.findByText('Path Planner');
+
+    expect(mockGetSupervisorAgent).toHaveBeenCalledTimes(1);
+    expect(mockListSubAgents).toHaveBeenCalledTimes(1);
+    expect(mockListLambdaTools).toHaveBeenCalledTimes(1);
+    expect(mockListMemoryTools).toHaveBeenCalledTimes(1);
+    expect(mockListGuardrailTools).toHaveBeenCalledTimes(1);
+    expect(mockListAgentVersions).toHaveBeenCalledTimes(1);
 
     const pageText = container.textContent || '';
     expect(pageText).toContain('Agent Builder');
