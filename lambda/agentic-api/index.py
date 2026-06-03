@@ -293,10 +293,9 @@ def handle_get_submission_history(arguments, event):
 def handle_invoke_agent_core_runtime(arguments, event):
     """Handle InvokeAgentCoreRuntime mutation.
 
-    Supports two flows for backward compatibility:
-    - Phase 1 (local path): If navigationPath is provided and non-empty, use it directly.
-    - Phase 2 (AgentCore): If navigationPath is absent/empty, invoke the user's AgentCore
-      Runtime for pathfinding, parse the response, and run the game with incremental flush.
+    Invokes the user's AgentCore Runtime for pathfinding via the async Game Runner
+    Lambda. The navigationPath field carries the user's prompt text (e.g., "use strategy swift")
+    which gets appended to the fixed navigation prompt.
 
     Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 9.8
     """
@@ -325,110 +324,6 @@ def handle_invoke_agent_core_runtime(arguments, event):
         event=event,
         user_prompt=user_prompt,
     )
-
-
-def _handle_local_path_flow(
-    map_id: str,
-    navigation_path_json: str,
-    custom_model_count: int,
-    map_data_json: str,
-    user_id: str,
-) -> dict:
-    """Phase 1 flow: run game with a pre-computed navigation path from the frontend."""
-    # Parse navigation path from JSON string to list of [row, col]
-    try:
-        navigation_path = json.loads(navigation_path_json)
-    except (json.JSONDecodeError, TypeError) as e:
-        return {
-            "sessionId": "error",
-            "status": "error",
-            "message": f"Invalid navigationPath JSON: {e}",
-        }
-
-    # Validate and convert to list of tuples
-    if not isinstance(navigation_path, list) or len(navigation_path) == 0:
-        return {
-            "sessionId": "error",
-            "status": "error",
-            "message": "navigationPath must be a non-empty JSON array of [row, col] pairs",
-        }
-
-    try:
-        navigation_path_tuples = []
-        for i, step in enumerate(navigation_path):
-            if not isinstance(step, (list, tuple)) or len(step) < 2:
-                raise ValueError(f"Step {i} is not a valid [row, col] pair: {step}")
-            row, col = int(step[0]), int(step[1])
-            navigation_path_tuples.append((row, col))
-    except (TypeError, ValueError, IndexError) as e:
-        return {
-            "sessionId": "error",
-            "status": "error",
-            "message": f"Invalid navigationPath format: {e}",
-        }
-
-    # Generate session ID
-    session_id = str(uuid.uuid4())
-    now = _now_iso()
-
-    # Create GameSession record with status "in_progress"
-    try:
-        game_sessions_table.put_item(Item={
-            "sessionId": session_id,
-            "userId": user_id,
-            "mapId": map_id,
-            "status": "in_progress",
-            "createdAt": now,
-            "updatedAt": now,
-        })
-    except Exception as e:
-        logger.error(f"Error creating game session: {e}")
-        return {
-            "sessionId": session_id,
-            "status": "error",
-            "message": f"Failed to create game session: {e}",
-        }
-
-    # Load map data
-    map_data = _load_map_data(map_id, map_data_json, session_id)
-    if map_data is None:
-        return {
-            "sessionId": session_id,
-            "status": "error",
-            "message": "Failed to load map data",
-        }
-    if isinstance(map_data, dict) and map_data.get("__error"):
-        return {
-            "sessionId": session_id,
-            "status": "error",
-            "message": map_data["__error"],
-        }
-
-    # Run the game session (Phase 1 pure function)
-    try:
-        results = game_runner.run_game_session(
-            session_id=session_id,
-            map_data=map_data,
-            navigation_path=navigation_path_tuples,
-            custom_model_count=custom_model_count,
-        )
-    except Exception as e:
-        logger.error(f"Error running game session: {e}")
-        _update_session_error(session_id, f"Game runner error: {e}")
-        return {
-            "sessionId": session_id,
-            "status": "error",
-            "message": f"Game runner error: {e}",
-        }
-
-    # Update GameSession with results
-    _persist_game_results(session_id, results, custom_model_count)
-
-    return {
-        "sessionId": session_id,
-        "status": results["status"],
-        "message": "Game session completed",
-    }
 
 
 def _handle_agentcore_flow(

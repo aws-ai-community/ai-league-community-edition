@@ -93,30 +93,6 @@ def handler(event, context):
             })
             return
 
-        # Step 2b: Validate path — fallback to direct pathfinder if path is invalid
-        grid = map_data.get("grid", [])
-        needs_fallback = False
-        if grid and len(nav_path) >= 2:
-            # Check if path hits a wall in the first 3 steps
-            for step_idx in range(1, min(4, len(nav_path))):
-                r, c = nav_path[step_idx][0], nav_path[step_idx][1]
-                if 0 <= r < len(grid) and 0 <= c < len(grid[0]) and grid[r][c] == "wall":
-                    logger.warning("Agent path hits wall at step %d (%d,%d)", step_idx, r, c)
-                    needs_fallback = True
-                    break
-            # Check if path is unreasonably long (more than 4x the grid cells)
-            max_reasonable = len(grid) * len(grid[0]) * 4
-            if len(nav_path) > max_reasonable:
-                logger.warning("Agent path unreasonably long (%d steps, max %d)", len(nav_path), max_reasonable)
-                needs_fallback = True
-
-        if needs_fallback:
-            logger.info("Using direct pathfinder fallback")
-            direct_path = _call_pathfinder_directly(grid, start_pos)
-            if direct_path:
-                nav_path = direct_path
-                agent_response = json.dumps(_path_to_directions(nav_path))
-
         # Step 3: Write planned path
         planned_path = [{"row": p[0], "col": p[1]} for p in nav_path]
         _update_session(gs_table, session_id, {

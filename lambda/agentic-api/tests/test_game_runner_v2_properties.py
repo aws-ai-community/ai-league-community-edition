@@ -83,8 +83,11 @@ class TestTokenAccumulation:
         token_iter = iter(token_counts)
 
         def mock_invoke(runtime_arn, payload=None, timeout=90, session_id=None, **kwargs):
-            next(token_iter)  # consume the token value
-            return "test_answer"
+            word_count = next(token_iter)
+            # Return a response with the specified number of words so
+            # max(1, len(answer.split())) produces a predictable token count
+            words = max(1, word_count)
+            return " ".join(["word"] * words)
 
         # Mock the db_flush_fn (no-op for testing)
         flush_fn = MagicMock()
@@ -103,11 +106,11 @@ class TestTokenAccumulation:
             )
 
         # Token count is max(1, len(answer.split())) per invocation
-        # "test_answer" has 1 word, so max(1, 1) = 1 per challenge
-        expected_total = len(token_counts)  # 1 token per challenge invocation
+        # The mock returns max(1, count) words, so tokens_used = max(1, max(1, count)) = max(1, count)
+        expected_total = sum(max(1, tc) for tc in token_counts)
         assert result["totalTokens"] == expected_total, (
             f"Token accumulation mismatch.\n"
-            f"  Challenges hit: {len(token_counts)}\n"
+            f"  Token counts: {token_counts}\n"
             f"  Expected total: {expected_total}\n"
             f"  Actual totalTokens: {result['totalTokens']}"
         )

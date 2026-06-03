@@ -56,7 +56,7 @@ def lambda_handler(event, context):
         else:
             body = event
 
-        print(f"DEBUG: Received event: {body}")
+        print(f"DEBUG: strategy={strategy} start_pos={start_pos} grid_size={len(body.get('game_map',''))} chars")
         game_map = body.get('game_map', [])
         start_pos = body.get('start_pos', [0, 0])
         strategy = body.get('strategy', 'swift')

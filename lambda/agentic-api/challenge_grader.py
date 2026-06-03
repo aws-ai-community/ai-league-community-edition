@@ -92,5 +92,3 @@ def _guardrail_block(response: str) -> bool:
             return True
 
     return False
-
-    return False
