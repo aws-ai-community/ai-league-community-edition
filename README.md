@@ -34,6 +34,22 @@ A full-stack web application for AWS AI League participants to practice and coll
   - Amazon Nova (Micro, Lite, Pro), DeepSeek, Meta Llama, Mistral, and Anthropic Claude families
   - Wealth warning about AWS credits coverage and cost responsibility
 
+### Agent Builder (Phase 2)
+- **Agent Builder Page** — Configure supervisor agents, sub-agents, and tools from a single UI
+  - Supervisor agent configuration: name, system prompt, model selection (Nova, DeepSeek, Llama, Mistral)
+  - Tool attachments: toggle Lambda tools, memory, guardrail, and sub-agents on your supervisor
+  - Sub-agent management: create, edit, and delete sub-agents with their own model/prompt/tools
+- **AgentCore Runtime Integration** — Invoke agents via Amazon Bedrock AgentCore for AI-powered gameplay
+- **Cognito Authentication** — Per-user agent configurations; all Phase 2 mutations require JWT auth
+- **Lambda Tool Registration** — Register existing Lambda ARNs as agent tools (creation via Code Editor in future phases)
+  - Default **Pathfinder** tool ships with the platform for navigation
+- **Memory Tool Management** — Create and attach memory instances for persistent agent recall
+- **Guardrail Management** — Full-featured guardrail creation modal with:
+  - Content policy filters (VIOLENCE, HATE, SEXUAL, INSULTS) with per-category input/output strength selectors (NONE/LOW/MEDIUM/HIGH)
+  - Topic policy deny list with custom topic names and definitions
+  - Configurable blocked input/output messaging
+- **Agent Versioning** — Versions are automatically captured on leaderboard submission, with score and config history
+
 ### Game Engine Backend
 - AppSync GraphQL API with API Key authentication
 - Python Lambda resolver handling all game logic
@@ -131,6 +147,7 @@ ai-league-community-edition/
 │   │   │   │   ├── pathValidation.ts
 │   │   │   │   └── tileData.ts
 │   │   │   └── agentic/      # Agentic Game Engine pages
+│   │   │       ├── AgentBuilderPage.tsx
 │   │   │       ├── GameplayPage.tsx
 │   │   │       ├── LeaderboardPage.tsx
 │   │   │       ├── SubmissionHistoryPage.tsx
@@ -200,8 +217,8 @@ This removes all deployed resources including the Cognito User Pool, DynamoDB ta
 
 ## Roadmap
 
-- **Phase 2**: Agent Builder — AgentCore integration, sub-agents, Lambda tools, real-time WebSocket events
-- **Phase 3**: Tools & Config — Memory Manager, Guardrail Configurator, Code Editor
+- ~~**Phase 2**: Agent Builder — AgentCore integration, sub-agents, Lambda tools, memory, guardrails~~ ✅
+- **Phase 3**: Tools & Config — Lambda function creation via SageMaker Code Editor, advanced guardrail templates
 - **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
 ## License

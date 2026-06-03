@@ -10,6 +10,7 @@ import * as cr from 'aws-cdk-lib/custom-resources';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cf from 'aws-cdk-lib/aws-cloudfront';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { Construct } from 'constructs';
@@ -144,6 +145,14 @@ export class CdkStack extends cdk.Stack {
             expires: cdk.Expiration.after(cdk.Duration.days(365)),
           },
         },
+        additionalAuthorizationModes: [
+          {
+            authorizationType: appsync.AuthorizationType.USER_POOL,
+            userPoolConfig: {
+              userPool: this.userPool,
+            },
+          },
+        ],
       },
       logConfig: {
         fieldLogLevel: appsync.FieldLogLevel.ERROR,
@@ -167,6 +176,81 @@ export class CdkStack extends cdk.Stack {
       },
     });
 
+    // Pathfinder Tool Lambda — default BFS pathfinding tool for AgentCore
+    const pathfinderLambda = new lambda.Function(this, 'PathfinderToolLambda', {
+      functionName: 'ai-league-pathfinder-tool',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.lambda_handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/pathfinder-tool')),
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 256,
+    });
+
+    // Export Pathfinder Lambda ARN to the agentic-api Lambda
+    agenticLambda.addEnvironment('PATHFINDER_LAMBDA_ARN', pathfinderLambda.functionArn);
+
+    // Gateway IAM role — allows Gateway to invoke Lambda tool targets
+    const gatewayRole = new iam.Role(this, 'AgentCoreGatewayRole', {
+      assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
+    });
+    gatewayRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['lambda:InvokeFunction'],
+      resources: [pathfinderLambda.functionArn],
+    }));
+
+    // AgentCore Gateway (L1 CfnResource — no L2 construct)
+    const gateway = new cdk.CfnResource(this, 'AgentCoreGateway', {
+      type: 'AWS::BedrockAgentCore::Gateway',
+      properties: {
+        Name: 'communityGateway',
+        AuthorizerType: 'AWS_IAM',
+        ProtocolType: 'MCP',
+        RoleArn: gatewayRole.roleArn,
+        Description: 'AgentCore MCP Gateway for AI League Community Edition',
+      },
+    });
+
+    // Gateway Target — Pathfinder Lambda as MCP tool
+    const pathfindingTarget = new cdk.CfnResource(this, 'PathfindingGatewayTarget', {
+      type: 'AWS::BedrockAgentCore::GatewayTarget',
+      properties: {
+        GatewayIdentifier: gateway.ref,
+        Name: 'PathfindingLambdaTarget',
+        Description: 'BFS pathfinding with swift and get_coins strategies',
+        TargetConfiguration: {
+          Mcp: {
+            Lambda: {
+              LambdaArn: pathfinderLambda.functionArn,
+              ToolSchema: {
+                InlinePayload: [{
+                  Name: 'pathfind',
+                  Description: 'Pathfinding Lambda with strategy selection. Strategies: swift (BFS shortest path to treasure, default), get_coins (greedily collect c7 coins on the way to treasure).',
+                  InputSchema: {
+                    Type: 'object',
+                    Properties: {
+                      game_map: { Type: 'string', Description: 'JSON encoded 2D array of the game map. Each cell is a string like "normal", "wall", "treasure", "c1"-"c8" etc.' },
+                      start_pos: { Type: 'string', Description: 'JSON encoded start position as [row, col] array, e.g. [0,0].' },
+                      strategy: { Type: 'string', Description: 'Pathfinding strategy: "swift" (shortest path to treasure) or "get_coins" (collect c7 coins then go to treasure). Default: swift.' },
+                    },
+                    Required: ['game_map'],
+                  },
+                }],
+              },
+            },
+          },
+        },
+        CredentialProviderConfigurations: [{ CredentialProviderType: 'GATEWAY_IAM_ROLE' }],
+      },
+    });
+    pathfindingTarget.addDependency(gateway);
+
+    // Construct gateway URL and pass to agentic Lambda
+    const gatewayUrl = cdk.Fn.sub(
+      'https://${GatewayId}.gateway.bedrock-agentcore.${Region}.amazonaws.com/mcp',
+      { GatewayId: gateway.ref, Region: cdk.Aws.REGION },
+    );
+    agenticLambda.addEnvironment('GATEWAY_URL', gatewayUrl.toString());
+
     // Grant Lambda read/write access to all agentic tables plus Maps table
     gameSessionsTable.grantReadWriteData(agenticLambda);
     agenticLeaderboardTable.grantReadWriteData(agenticLambda);
@@ -178,10 +262,304 @@ export class CdkStack extends cdk.Stack {
     agenticLambda.addToRolePolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
-        actions: ['bedrock:InvokeModel'],
+        actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
         resources: ['*'],
       })
     );
+
+    // IAM Role for AgentCore Runtime instances (assumed by the runtime itself)
+    const agentCoreRuntimeRole = new iam.Role(this, 'AgentCoreRuntimeRole', {
+      roleName: 'ai-league-agentcore-runtime-role',
+      assumedBy: new iam.ServicePrincipal('bedrock-agentcore.amazonaws.com'),
+      description: 'IAM role assumed by AgentCore Runtime instances',
+    });
+
+    // Grant the runtime role permissions matching reference app
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock-agentcore:InvokeGateway'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:CreateEvent', 'bedrock-agentcore:GetEvent',
+        'bedrock-agentcore:GetMemory', 'bedrock-agentcore:GetMemoryRecord',
+        'bedrock-agentcore:ListMemoryRecords', 'bedrock-agentcore:RetrieveMemoryRecords',
+        'bedrock-agentcore:DeleteMemoryRecord', 'bedrock-agentcore:CreateMemory',
+      ],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:ApplyGuardrail'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock-agentcore:InvokeAgentRuntime'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: ['*'],
+    }));
+    agentCoreRuntimeRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['ecr:GetAuthorizationToken', 'ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer'],
+      resources: ['*'],
+    }));
+
+    // ECR repository for the agent runtime container
+    const agentEcr = new ecr.Repository(this, 'AgentRuntimeECR', {
+      repositoryName: 'ai-league-community-agent',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
+    // S3 bucket for agent source code (used by CodeBuild)
+    const agentRuntimeBucket = new s3.Bucket(this, 'AgentRuntimeBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    // Upload agent source code to S3 for CodeBuild
+    const deployAgentSource = new s3deploy.BucketDeployment(this, 'DeployAgentSource', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../../lambda/agent-runtime'))],
+      destinationBucket: agentRuntimeBucket,
+      destinationKeyPrefix: 'agent-source',
+    });
+
+    // CodeBuild role
+    const codeBuildRole = new iam.Role(this, 'AgentCodeBuildRole', {
+      assumedBy: new iam.ServicePrincipal('codebuild.amazonaws.com'),
+    });
+    codeBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'ecr:BatchCheckLayerAvailability', 'ecr:GetDownloadUrlForLayer',
+        'ecr:BatchGetImage', 'ecr:GetAuthorizationToken',
+        'ecr:PutImage', 'ecr:InitiateLayerUpload',
+        'ecr:UploadLayerPart', 'ecr:CompleteLayerUpload',
+      ],
+      resources: ['*'],
+    }));
+    codeBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/codebuild/*`],
+    }));
+    agentRuntimeBucket.grantRead(codeBuildRole);
+
+    // CodeBuild project — builds ARM64 container and pushes to ECR
+    const codeBuildProject = new cdk.aws_codebuild.Project(this, 'AgentCodeBuild', {
+      projectName: 'ai-league-community-agent-build',
+      description: 'Build and push community agent container to ECR',
+      source: cdk.aws_codebuild.Source.s3({
+        bucket: agentRuntimeBucket,
+        path: 'agent-source/',
+      }),
+      environment: {
+        buildImage: cdk.aws_codebuild.LinuxArmBuildImage.AMAZON_LINUX_2_STANDARD_3_0,
+        computeType: cdk.aws_codebuild.ComputeType.SMALL,
+        privileged: true,
+      },
+      role: codeBuildRole,
+      buildSpec: cdk.aws_codebuild.BuildSpec.fromObject({
+        version: '0.2',
+        phases: {
+          build: {
+            commands: [
+              'echo "Building agent container..."',
+              'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com',
+              'docker build -t ai-league-agent .',
+              'docker tag ai-league-agent:latest $ECR_URI:latest',
+            ],
+          },
+          post_build: {
+            commands: [
+              'docker push $ECR_URI:latest',
+              'echo "Build completed"',
+            ],
+          },
+        },
+      }),
+      environmentVariables: {
+        ECR_URI: { value: agentEcr.repositoryUri },
+        AWS_ACCOUNT_ID: { value: cdk.Aws.ACCOUNT_ID },
+      },
+      timeout: cdk.Duration.minutes(30),
+    });
+
+    // Custom resource Lambda to trigger CodeBuild and wait for completion
+    const triggerBuildFn = new lambda.Function(this, 'TriggerBuildFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(14),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import time
+
+def handler(event, context):
+    try:
+        if event['RequestType'] in ['Create', 'Update']:
+            codebuild = boto3.client('codebuild')
+            response = codebuild.start_build(projectName=event['ResourceProperties']['ProjectName'])
+            build_id = response['build']['id']
+            while True:
+                time.sleep(10)
+                builds = codebuild.batch_get_builds(ids=[build_id])
+                status = builds['builds'][0]['buildStatus']
+                if status == 'SUCCEEDED':
+                    cfnresponse.send(event, context, cfnresponse.SUCCESS, {'BuildId': build_id})
+                    return
+                elif status in ['FAILED', 'FAULT', 'TIMED_OUT', 'STOPPED']:
+                    cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': f'Build {status}'})
+                    return
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+`),
+    });
+    triggerBuildFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
+      resources: [codeBuildProject.projectArn],
+    }));
+
+    const triggerBuildProvider = new cr.Provider(this, 'TriggerBuildProvider', {
+      onEventHandler: triggerBuildFn,
+    });
+
+    const triggerBuild = new cdk.CustomResource(this, 'TriggerAgentBuild', {
+      serviceToken: triggerBuildProvider.serviceToken,
+      properties: {
+        ProjectName: codeBuildProject.projectName,
+        BuildTrigger: Date.now().toString(),
+      },
+    });
+    // Explicit CloudFormation-level dependencies to ensure correct ordering
+    const triggerBuildCfn = triggerBuild.node.defaultChild as cdk.CfnResource;
+    const deploySourceCfn = deployAgentSource.node.findChild('CustomResource').node.defaultChild as cdk.CfnResource;
+    triggerBuildCfn.addDependency(deploySourceCfn);
+
+    // Grant runtime role ECR pull access
+    agentEcr.grantPull(agentCoreRuntimeRole);
+
+    // Create the AgentCore Runtime as a CloudFormation resource
+    const agentRuntime = new cdk.CfnResource(this, 'AgentCoreRuntime', {
+      type: 'AWS::BedrockAgentCore::Runtime',
+      properties: {
+        AgentRuntimeName: 'communityAgentRuntime',
+        AgentRuntimeArtifact: {
+          ContainerConfiguration: {
+            ContainerUri: `${agentEcr.repositoryUri}:latest`,
+          },
+        },
+        RoleArn: agentCoreRuntimeRole.roleArn,
+        NetworkConfiguration: { NetworkMode: 'PUBLIC' },
+        ProtocolConfiguration: 'HTTP',
+      },
+    });
+    agentRuntime.addDependency(triggerBuild.node.defaultChild as cdk.CfnResource);
+
+    // Pass the runtime role ARN to the agentic Lambda
+    agenticLambda.addEnvironment('AGENTCORE_RUNTIME_ROLE_ARN', agentCoreRuntimeRole.roleArn);
+
+    // Pass the runtime ARN to the Lambda (from the CfnResource output)
+    agenticLambda.addEnvironment('AGENT_RUNTIME_ARN', agentRuntime.getAtt('AgentRuntimeArn').toString());
+
+    // Grant the agentic Lambda permission to pass the runtime role to AgentCore
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: [agentCoreRuntimeRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'bedrock-agentcore.amazonaws.com',
+        },
+      },
+    }));
+
+    // Grant Lambda ALL AgentCore permissions (matching reference app pattern)
+    agenticLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'bedrock-agentcore:*',
+          'bedrock-agentcore-control:*',
+        ],
+        resources: ['*'],
+      })
+    );
+
+    // Grant Lambda permissions for Bedrock Guardrail operations
+    agenticLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'bedrock:CreateGuardrail',
+          'bedrock:DeleteGuardrail',
+          'bedrock:ListGuardrails',
+        ],
+        resources: ['*'],
+      })
+    );
+
+    // ========================================================================
+    // Game Runner Lambda — async execution of game sessions (10 min timeout)
+    // ========================================================================
+    // This Lambda is invoked asynchronously by the resolver Lambda to avoid
+    // AppSync/API Gateway timeout limits. It runs the full game session
+    // (pathfinding + challenge execution) with incremental DynamoDB flushes.
+    const gameRunnerLambda = new lambda.Function(this, 'GameRunnerFunction', {
+      functionName: 'ai-league-game-runner',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'game_runner_handler.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/agentic-api')),
+      timeout: cdk.Duration.minutes(10),
+      memorySize: 512,
+      environment: {
+        GAME_SESSIONS_TABLE: gameSessionsTable.tableName,
+        AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
+      },
+    });
+
+    // Grant Game Runner Lambda read/write access to game sessions
+    gameSessionsTable.grantReadWriteData(gameRunnerLambda);
+
+    // Grant Game Runner Lambda AgentCore permissions (for pathfinding + challenge invocations)
+    gameRunnerLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock-agentcore:InvokeAgentRuntime',
+        'bedrock-agentcore:*',
+      ],
+      resources: ['*'],
+    }));
+
+    // Grant Game Runner Lambda Bedrock Guardrail permissions
+    gameRunnerLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:ApplyGuardrail', 'bedrock:ListGuardrails', 'bedrock:GetGuardrail'],
+      resources: ['*'],
+    }));
+
+    // Pass game runner function name to the resolver Lambda so it can invoke async
+    agenticLambda.addEnvironment('GAME_RUNNER_FUNCTION', gameRunnerLambda.functionName);
+
+    // Grant the resolver Lambda permission to invoke the Game Runner Lambda
+    gameRunnerLambda.grantInvoke(agenticLambda);
 
     // Attach Lambda as data source for AppSync
     const agenticDataSource = agenticApi.addLambdaDataSource(
@@ -223,6 +601,86 @@ export class CdkStack extends cdk.Stack {
     agenticDataSource.createResolver('SaveLlmConfigurationResolver', {
       typeName: 'Mutation',
       fieldName: 'SaveLlmConfiguration',
+    });
+
+    // Phase 2 Query resolvers (Agent Builder)
+    agenticDataSource.createResolver('GetSupervisorAgentResolver', {
+      typeName: 'Query',
+      fieldName: 'GetSupervisorAgent',
+    });
+    agenticDataSource.createResolver('ListSubAgentsResolver', {
+      typeName: 'Query',
+      fieldName: 'ListSubAgents',
+    });
+    agenticDataSource.createResolver('GetSubAgentResolver', {
+      typeName: 'Query',
+      fieldName: 'GetSubAgent',
+    });
+    agenticDataSource.createResolver('ListLambdaToolResolver', {
+      typeName: 'Query',
+      fieldName: 'ListLambdaTool',
+    });
+    agenticDataSource.createResolver('ListMemoryResolver', {
+      typeName: 'Query',
+      fieldName: 'ListMemory',
+    });
+    agenticDataSource.createResolver('ListGuardrailResolver', {
+      typeName: 'Query',
+      fieldName: 'ListGuardrail',
+    });
+    agenticDataSource.createResolver('GetAgentCoreRuntimeResolver', {
+      typeName: 'Query',
+      fieldName: 'GetAgentCoreRuntime',
+    });
+    agenticDataSource.createResolver('ListAgentVersionsResolver', {
+      typeName: 'Query',
+      fieldName: 'ListAgentVersions',
+    });
+
+    // Phase 2 Mutation resolvers (Agent Builder)
+    agenticDataSource.createResolver('UpdateSupervisorAgentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'UpdateSupervisorAgent',
+    });
+    agenticDataSource.createResolver('CreateSubAgentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'CreateSubAgent',
+    });
+    agenticDataSource.createResolver('UpdateSubAgentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'UpdateSubAgent',
+    });
+    agenticDataSource.createResolver('DeleteSubAgentResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteSubAgent',
+    });
+    agenticDataSource.createResolver('UpdateLambdaToolResolver', {
+      typeName: 'Mutation',
+      fieldName: 'UpdateLambdaTool',
+    });
+    agenticDataSource.createResolver('DeleteLambdaToolResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteLambdaTool',
+    });
+    agenticDataSource.createResolver('CreateMemoryResolver', {
+      typeName: 'Mutation',
+      fieldName: 'CreateMemory',
+    });
+    agenticDataSource.createResolver('DeleteMemoryResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteMemory',
+    });
+    agenticDataSource.createResolver('CreateGuardrailResolver', {
+      typeName: 'Mutation',
+      fieldName: 'CreateGuardrail',
+    });
+    agenticDataSource.createResolver('DeleteGuardrailResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteGuardrail',
+    });
+    agenticDataSource.createResolver('CreateModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'CreateModel',
     });
 
     // Profile API Lambda function (TypeScript bundled with esbuild)
@@ -470,6 +928,13 @@ export class CdkStack extends cdk.Stack {
     const settingsAsset = s3deploy.Source.jsonData('settings.json', {
       graphql: { endpoint: agenticApi.graphqlUrl },
       graphqlApiKey: agenticApi.apiKey,
+      auth: {
+        cognito: {
+          userPoolId: this.userPool.userPoolId,
+          userPoolClientId: this.userPoolClient.userPoolClientId,
+          domain: `ai-league-${this.account}`,
+        },
+      },
     });
 
     // Single BucketDeployment with frontend assets, runtime config, and agentic settings
@@ -542,6 +1007,16 @@ export class CdkStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AgenticApiKey', {
       value: agenticApi.apiKey || '',
       description: 'AppSync API Key for the Agentic Game Engine',
+    });
+
+    new cdk.CfnOutput(this, 'AgentCoreRuntimeArn', {
+      value: agentRuntime.getAtt('AgentRuntimeArn').toString(),
+      description: 'AgentCore Runtime ARN for the community agent',
+    });
+
+    new cdk.CfnOutput(this, 'AgentCoreRuntimeRoleArn', {
+      value: agentCoreRuntimeRole.roleArn,
+      description: 'IAM Role ARN for AgentCore Runtime instances (use when provisioning a runtime)',
     });
   }
 }

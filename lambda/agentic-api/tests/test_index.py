@@ -150,12 +150,17 @@ def test_leaderboard_upsert_higher_score_updates_best_score():
     }
 
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
+    mock_agent_config_table.get_item.return_value = {
+        "Item": {"userId": user_id, "sk": "SUPERVISOR", "name": "My Agent", "subAgents": []}
+    }
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-123"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -211,12 +216,17 @@ def test_leaderboard_upsert_lower_score_does_not_update_best_score():
     }
 
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
+    mock_agent_config_table.get_item.return_value = {
+        "Item": {"userId": user_id, "sk": "SUPERVISOR", "name": "My Agent", "subAgents": []}
+    }
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-456"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -271,12 +281,17 @@ def test_leaderboard_upsert_increments_total_submissions():
     }
 
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
+    mock_agent_config_table.get_item.return_value = {
+        "Item": {"userId": user_id, "sk": "SUPERVISOR", "name": "My Agent", "subAgents": []}
+    }
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-789"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -322,12 +337,14 @@ def test_non_completed_sessions_cannot_be_submitted(status):
 
     mock_leaderboard_table = MagicMock()
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-test"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -372,12 +389,17 @@ def test_completed_session_can_be_submitted():
     mock_leaderboard_table.get_item.return_value = {"Item": None}
 
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
+    mock_agent_config_table.get_item.return_value = {
+        "Item": {"userId": user_id, "sk": "SUPERVISOR", "name": "My Agent", "subAgents": []}
+    }
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-complete"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -428,12 +450,17 @@ def test_submission_includes_map_id():
     mock_leaderboard_table.get_item.return_value = {"Item": None}
 
     mock_submissions_table = MagicMock()
+    mock_agent_config_table = MagicMock()
+    mock_agent_config_table.get_item.return_value = {
+        "Item": {"userId": user_id, "sk": "SUPERVISOR", "name": "My Agent", "subAgents": []}
+    }
 
     with patch.object(index, "game_sessions_table", mock_sessions_table), \
          patch.object(index, "leaderboard_table", mock_leaderboard_table), \
-         patch.object(index, "submissions_table", mock_submissions_table):
+         patch.object(index, "submissions_table", mock_submissions_table), \
+         patch.object(index, "agent_configurations_table", mock_agent_config_table):
 
-        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id}
+        arguments = {"leaderboardId": leaderboard_id, "sessionId": session_id, "modelId": "model-mapid"}
         event = make_event("SubmitToLeaderboard", arguments, identity={"sub": user_id})
         result = index.handle_submit_to_leaderboard(arguments, event)
 
@@ -491,7 +518,7 @@ def test_get_map_loads_challenge_assignments():
     }
 
     mock_maps_table = MagicMock()
-    mock_maps_table.get_item.return_value = {"Item": map_document}
+    mock_maps_table.scan.return_value = {"Items": [map_document]}
 
     with patch.object(index, "maps_table", mock_maps_table):
         arguments = {"mapId": map_id}

@@ -1,4 +1,4 @@
-type GameSessionResponse {
+type GameSessionResponse @aws_api_key @aws_cognito_user_pools {
   sessionId: String!
   status: String!
   gameEvents: String
@@ -18,7 +18,7 @@ type GameSessionResponse {
   updatedAt: String
 }
 
-type InvokeRuntimeResponse {
+type InvokeRuntimeResponse @aws_api_key @aws_cognito_user_pools {
   sessionId: String!
   status: String!
   message: String
@@ -32,7 +32,7 @@ type InvokeRuntimeResponse {
   reachedTreasure: Boolean
 }
 
-type LeaderboardEntry {
+type LeaderboardEntry @aws_api_key @aws_cognito_user_pools {
   userId: String!
   alias: String
   avatar: String
@@ -42,11 +42,11 @@ type LeaderboardEntry {
   rank: Int
 }
 
-type LeaderboardSubmissionsResponse {
+type LeaderboardSubmissionsResponse @aws_api_key @aws_cognito_user_pools {
   entries: [LeaderboardEntry!]!
 }
 
-type SubmissionHistoryEntry {
+type SubmissionHistoryEntry @aws_api_key @aws_cognito_user_pools {
   updatedTime: AWSDateTime
   mapId: String
   leaderboardId: String
@@ -59,39 +59,142 @@ type SubmissionHistoryEntry {
   livesRemaining: Int
 }
 
-type SubmissionHistoryResponse {
+type SubmissionHistoryResponse @aws_api_key @aws_cognito_user_pools {
   items: [SubmissionHistoryEntry!]!
 }
 
-type MapResponse {
+type MapResponse @aws_api_key @aws_cognito_user_pools {
   mapData: String
 }
 
-type MutationResponse {
+type MutationResponse @aws_api_key @aws_cognito_user_pools {
   success: Boolean!
   statusCode: Int
   message: String
 }
 
-type LlmConfigurationResponse {
+type LlmConfigurationResponse @aws_api_key @aws_cognito_user_pools {
   defaultModel: String
   challengeGeneration: String
   challengeGrading: String
   gameCommentary: String
 }
 
+# Phase 2 Types
+
+type SupervisorAgent @aws_cognito_user_pools @aws_api_key {
+  agentId: String
+  userId: String
+  name: String!
+  systemPrompt: String!
+  modelId: String!
+  subAgents: [String!]!
+  lambdaTools: [String!]!
+  memoryTool: String
+  guardrailTool: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type SubAgent @aws_cognito_user_pools @aws_api_key {
+  agentId: String!
+  userId: String
+  name: String!
+  systemPrompt: String!
+  modelId: String!
+  lambdaTools: [String!]!
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type LambdaTool @aws_cognito_user_pools @aws_api_key {
+  toolId: String!
+  userId: String
+  name: String!
+  functionName: String!
+  runtime: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type MemoryTool @aws_cognito_user_pools @aws_api_key {
+  toolId: String!
+  userId: String
+  name: String!
+  memoryId: String!
+  description: String
+  status: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type GuardrailTool @aws_cognito_user_pools @aws_api_key {
+  toolId: String!
+  userId: String
+  name: String!
+  guardrailId: String!
+  description: String
+  status: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AgentVersion @aws_cognito_user_pools @aws_api_key {
+  versionId: String!
+  userId: String
+  name: String
+  supervisorConfig: String
+  finalScore: Float
+  subAgentCount: Int
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type AgentCoreRuntimeResponse @aws_cognito_user_pools @aws_api_key {
+  runtimeArn: String
+  status: String
+  message: String
+}
+
+type CreateModelResponse @aws_cognito_user_pools @aws_api_key {
+  modelId: String!
+  success: Boolean!
+  message: String
+}
+
 type Query {
-  GetMap(mapId: String!): MapResponse
-  GetGameSession(sessionId: String!): GameSessionResponse
-  GetLeaderboardSubmissions(leaderboardId: String!): LeaderboardSubmissionsResponse
-  GetSubmissionHistory(mapId: String): SubmissionHistoryResponse
-  GetLlmConfiguration: LlmConfigurationResponse
+  GetMap(mapId: String!): MapResponse @aws_api_key @aws_cognito_user_pools
+  GetGameSession(sessionId: String!): GameSessionResponse @aws_api_key @aws_cognito_user_pools
+  GetLeaderboardSubmissions(leaderboardId: String!): LeaderboardSubmissionsResponse @aws_api_key @aws_cognito_user_pools
+  GetSubmissionHistory(mapId: String): SubmissionHistoryResponse @aws_api_key @aws_cognito_user_pools
+  GetLlmConfiguration: LlmConfigurationResponse @aws_api_key @aws_cognito_user_pools
+  # Phase 2 Queries (Cognito auth required)
+  GetSupervisorAgent: SupervisorAgent @aws_cognito_user_pools
+  ListSubAgents: [SubAgent!]! @aws_cognito_user_pools
+  GetSubAgent(agentId: String!): SubAgent @aws_cognito_user_pools
+  ListLambdaTool: [LambdaTool!]! @aws_cognito_user_pools
+  ListMemory: [MemoryTool!]! @aws_cognito_user_pools
+  ListGuardrail: [GuardrailTool!]! @aws_cognito_user_pools
+  GetAgentCoreRuntime: AgentCoreRuntimeResponse @aws_cognito_user_pools
+  ListAgentVersions: [AgentVersion!]! @aws_cognito_user_pools
 }
 
 type Mutation {
-  InvokeAgentCoreRuntime(mapId: String!, navigationPath: String!, customModelCount: Int, mapData: String): InvokeRuntimeResponse
-  SubmitToLeaderboard(leaderboardId: String!, sessionId: String!): MutationResponse
-  SaveLlmConfiguration(defaultModel: String, challengeGeneration: String, challengeGrading: String, gameCommentary: String): MutationResponse
+  InvokeAgentCoreRuntime(mapId: String!, navigationPath: String!, customModelCount: Int, modelId: String, mapData: String): InvokeRuntimeResponse @aws_api_key @aws_cognito_user_pools
+  SubmitToLeaderboard(leaderboardId: String!, sessionId: String!, modelId: String): MutationResponse @aws_api_key @aws_cognito_user_pools
+  SaveLlmConfiguration(defaultModel: String, challengeGeneration: String, challengeGrading: String, gameCommentary: String): MutationResponse @aws_api_key @aws_cognito_user_pools
+  # Phase 2 Mutations (Cognito auth required)
+  UpdateSupervisorAgent(name: String!, systemPrompt: String!, modelId: String!, subAgents: [String!]!, lambdaTools: [String!]!, memoryTool: String, guardrailTool: String): SupervisorAgent @aws_cognito_user_pools
+  CreateSubAgent(name: String!, systemPrompt: String!, modelId: String!, lambdaTools: [String!]!): SubAgent @aws_cognito_user_pools
+  UpdateSubAgent(agentId: String!, name: String!, systemPrompt: String!, modelId: String!, lambdaTools: [String!]!): SubAgent @aws_cognito_user_pools
+  DeleteSubAgent(agentId: String!): MutationResponse @aws_cognito_user_pools
+  UpdateLambdaTool(name: String!, functionName: String!): LambdaTool @aws_cognito_user_pools
+  DeleteLambdaTool(toolId: String!): MutationResponse @aws_cognito_user_pools
+  CreateMemory(name: String!, description: String): MemoryTool @aws_cognito_user_pools
+  DeleteMemory(toolId: String!): MutationResponse @aws_cognito_user_pools
+  CreateGuardrail(name: String!, description: String, blockedInputMessaging: String, blockedOutputsMessaging: String, contentPolicyConfig: String): GuardrailTool @aws_cognito_user_pools
+  DeleteGuardrail(toolId: String!): MutationResponse @aws_cognito_user_pools
+  CreateModel(name: String!, resourceIdentifier: String!, type: String!, pathfindingPromptStrategy: String): CreateModelResponse @aws_cognito_user_pools
 }
 
 schema {
