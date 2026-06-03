@@ -46,6 +46,7 @@ interface ModelDefinition {
   modelId: string;
   displayName: string;
   provider: string;
+  description?: string;
 }
 
 const AVAILABLE_MODELS: ModelDefinition[] = [
@@ -58,6 +59,9 @@ const AVAILABLE_MODELS: ModelDefinition[] = [
   { modelId: 'meta.llama4-maverick-17b-128e-instruct-v1:0', displayName: 'Llama 4 Maverick', provider: 'Meta Llama' },
   { modelId: 'mistral.mistral-large-2411-v1:0', displayName: 'Mistral Large 3', provider: 'Mistral' },
   { modelId: 'mistral.magistral-small-2506-v1:0', displayName: 'Magistral Small', provider: 'Mistral' },
+  { modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', displayName: 'Claude Sonnet 4', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
+  { modelId: 'anthropic.claude-haiku-4-20250514-v1:0', displayName: 'Claude Haiku 4', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
+  { modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0', displayName: 'Claude 3.5 Sonnet v2', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
 ];
 
 const DEFAULT_MODEL_ID = 'amazon.nova-lite-v1:0';
@@ -71,6 +75,7 @@ function buildModelOptions(): SelectProps.Options {
     groups[model.provider].push({
       label: model.displayName,
       value: model.modelId,
+      description: model.description,
     });
   }
   return Object.entries(groups).map(([provider, options]) => ({
@@ -618,7 +623,7 @@ export default function AgentBuilderPage() {
                 />
               </FormField>
 
-              <FormField label="Model" description="Select the foundation model for your supervisor agent.">
+              <FormField label="Model" description="Select the foundation model for your supervisor agent. Anthropic models are not covered by AWS credits and will incur direct charges.">
                 <Select
                   selectedOption={selectedModel}
                   onChange={({ detail }) => setSelectedModel(detail.selectedOption)}
