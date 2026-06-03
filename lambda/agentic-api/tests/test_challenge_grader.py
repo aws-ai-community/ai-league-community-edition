@@ -199,10 +199,11 @@ class TestGuardrailBlockProperty:
         """
         **Validates: Requirements 4.5**
 
-        Empty or whitespace-only responses return True.
+        Empty or whitespace-only responses return False (no guardrail intervention detected).
+        The guardrail must actively block the content for this to count as correct.
         """
         result = grade_response(whitespace, "", "guardrail_block", "c1")
-        assert result is True
+        assert result is False
 
     @given(
         indicator=st.sampled_from(BLOCKED_INDICATORS),

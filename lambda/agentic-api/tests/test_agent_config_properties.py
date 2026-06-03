@@ -147,7 +147,7 @@ def test_property_2_supervisor_agent_round_trip(
             "guardrailTool": guardrail_tool,
         }
         save_result = agent_config_handlers.handle_update_supervisor_agent(arguments, event)
-        assert save_result.get("success") is True, f"Save failed: {save_result}"
+        assert save_result.get("name") == name, f"Save failed: {save_result}"
 
         # Read back the supervisor config
         read_result = agent_config_handlers.handle_get_supervisor_agent({}, event)

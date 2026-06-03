@@ -239,7 +239,7 @@ def test_property_14_version_list_ordering(num_versions):
 
         # Call handle_list_agent_versions
         result = agent_config_handlers.handle_list_agent_versions({}, event)
-        versions = result["versions"]
+        versions = result if isinstance(result, list) else result.get("versions", [])
 
         # Verify we get back all versions
         assert len(versions) == num_versions
