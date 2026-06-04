@@ -109,9 +109,6 @@ def handler(event, context):
         "ListGuardrail": agent_config_handlers.handle_list_guardrail,
         "GetAgentCoreRuntime": agent_config_handlers.handle_get_agent_core_runtime,
         "ListAgentVersions": agent_config_handlers.handle_list_agent_versions,
-        # Phase 3 Queries
-        "GetCodeEditorStatus": agent_config_handlers.handle_get_code_editor_status,
-        "GetSchemaModelConfig": agent_config_handlers.handle_get_schema_model_config,
         # Mutations
         "InvokeAgentCoreRuntime": handle_invoke_agent_core_runtime,
         "SubmitToLeaderboard": handle_submit_to_leaderboard,
@@ -121,18 +118,13 @@ def handler(event, context):
         "CreateSubAgent": agent_config_handlers.handle_create_sub_agent,
         "UpdateSubAgent": agent_config_handlers.handle_update_sub_agent,
         "DeleteSubAgent": agent_config_handlers.handle_delete_sub_agent,
-        "CreateLambdaTool": agent_config_handlers.handle_create_lambda_tool,
+        "UpdateLambdaTool": agent_config_handlers.handle_update_lambda_tool,
         "DeleteLambdaTool": agent_config_handlers.handle_delete_lambda_tool,
         "CreateMemory": agent_config_handlers.handle_create_memory,
         "DeleteMemory": agent_config_handlers.handle_delete_memory,
         "CreateGuardrail": agent_config_handlers.handle_create_guardrail,
         "DeleteGuardrail": agent_config_handlers.handle_delete_guardrail,
         "CreateModel": agent_config_handlers.handle_create_model,
-        # Phase 3 Mutations
-        "StartCodeEditor": agent_config_handlers.handle_start_code_editor,
-        "StopCodeEditor": agent_config_handlers.handle_stop_code_editor,
-        "ResetConfiguration": agent_config_handlers.handle_reset_configuration,
-        "SaveSchemaModelConfig": agent_config_handlers.handle_save_schema_model_config,
     }
 
     handler_fn = handlers.get(field_name)
