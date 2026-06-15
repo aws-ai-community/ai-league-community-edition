@@ -508,9 +508,9 @@ export default function AgentBuilderPage() {
           name: t.name,
           definition: t.definition,
           type: 'DENY',
-          inputAction: t.inputAction,
-          outputAction: t.outputAction,
-          examples: t.samplePhrases.filter((p) => p.trim()),
+          inputAction: t.inputAction || 'BLOCK',
+          outputAction: t.outputAction || 'BLOCK',
+          examples: (t.samplePhrases || []).filter((p) => p.trim()),
         }));
       }
       const contentPolicyConfig = JSON.stringify(payload);
