@@ -282,7 +282,7 @@ def create_orchestrator_agent(session_id: str = None, tools: Optional[List] = No
 
     # Default model configuration
     model_config = {
-        "model_id": model_id or "amazon.nova-lite-v1:0",
+        "model_id": model_id or "us.amazon.nova-2-lite-v1:0",
         "max_tokens": 8192,
         "streaming": True
     }

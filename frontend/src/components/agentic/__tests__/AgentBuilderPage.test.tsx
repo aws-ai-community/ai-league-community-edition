@@ -46,7 +46,7 @@ describe('AgentBuilderPage', () => {
       GetSupervisorAgent: {
         name: 'My Agent',
         systemPrompt: 'Help users solve map challenges.',
-        modelId: 'amazon.nova-lite-v1:0',
+        modelId: 'us.amazon.nova-2-lite-v1:0',
         subAgents: ['sub-1'],
         lambdaTools: ['tool-1'],
         memoryTool: 'mem-1',
@@ -59,7 +59,7 @@ describe('AgentBuilderPage', () => {
           agentId: 'sub-1',
           name: 'Path Planner',
           systemPrompt: 'Plan a route.',
-          modelId: 'amazon.nova-lite-v1:0',
+          modelId: 'us.amazon.nova-2-lite-v1:0',
           lambdaTools: ['tool-1'],
         },
       ],
@@ -87,7 +87,7 @@ describe('AgentBuilderPage', () => {
       UpdateSupervisorAgent: {
         name: 'My Agent',
         systemPrompt: 'Help users solve map challenges.',
-        modelId: 'amazon.nova-lite-v1:0',
+        modelId: 'us.amazon.nova-2-lite-v1:0',
         subAgents: ['sub-1'],
         lambdaTools: ['tool-1'],
         memoryTool: 'mem-1',
@@ -141,7 +141,7 @@ describe('AgentBuilderPage', () => {
     expect(mockUpdateSupervisorAgent).toHaveBeenCalledWith({
       name: 'My Agent',
       systemPrompt: 'Help users solve map challenges.',
-      modelId: 'amazon.nova-lite-v1:0',
+      modelId: 'us.amazon.nova-2-lite-v1:0',
       subAgents: ['sub-1'],
       lambdaTools: ['tool-1'],
       memoryTool: 'mem-1',

@@ -51,21 +51,11 @@ interface ModelDefinition {
 }
 
 const AVAILABLE_MODELS: ModelDefinition[] = [
-  { modelId: 'amazon.nova-micro-v1:0', displayName: 'Nova Micro', provider: 'Amazon Nova' },
-  { modelId: 'amazon.nova-lite-v1:0', displayName: 'Nova Lite', provider: 'Amazon Nova' },
-  { modelId: 'amazon.nova-pro-v1:0', displayName: 'Nova Pro', provider: 'Amazon Nova' },
-  { modelId: 'deepseek.deepseek-v3-2-0:0', displayName: 'DeepSeek V3.2', provider: 'DeepSeek' },
-  { modelId: 'meta.llama3-3-70b-instruct-v1:0', displayName: 'Llama 3.3 70B', provider: 'Meta Llama' },
-  { modelId: 'meta.llama4-scout-17b-16e-instruct-v1:0', displayName: 'Llama 4 Scout', provider: 'Meta Llama' },
-  { modelId: 'meta.llama4-maverick-17b-128e-instruct-v1:0', displayName: 'Llama 4 Maverick', provider: 'Meta Llama' },
-  { modelId: 'mistral.mistral-large-2411-v1:0', displayName: 'Mistral Large 3', provider: 'Mistral' },
-  { modelId: 'mistral.magistral-small-2506-v1:0', displayName: 'Magistral Small', provider: 'Mistral' },
-  { modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', displayName: 'Claude Sonnet 4', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
-  { modelId: 'anthropic.claude-haiku-4-20250514-v1:0', displayName: 'Claude Haiku 4', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
-  { modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0', displayName: 'Claude 3.5 Sonnet v2', provider: 'Anthropic (⚠️ not covered by AWS credits)', description: 'Not covered by AWS credits' },
+  { modelId: 'us.amazon.nova-2-lite-v1:0', displayName: 'Nova 2 Lite', provider: 'Amazon Nova', description: 'Default - covered by AWS credits' },
+  { modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', displayName: 'Claude Haiku 4.5', provider: 'Anthropic', description: 'Higher quality - not typically covered by AWS credits' },
 ];
 
-const DEFAULT_MODEL_ID = 'amazon.nova-lite-v1:0';
+const DEFAULT_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
 
 function buildModelOptions(): SelectProps.Options {
   const groups: Record<string, SelectProps.Option[]> = {};
@@ -504,7 +494,7 @@ export default function AgentBuilderPage() {
         await deleteGuardrail(editingGuardrailToolId);
       }
 
-      const payload: { filtersConfig: { type: string; inputStrength: string; outputStrength: string }[]; topicsConfig?: { name: string; definition: string; inputAction: string; outputAction: string; samplePhrases: string[] }[] } = {
+      const payload: { filtersConfig: { type: string; inputStrength: string; outputStrength: string }[]; topicsConfig?: { name: string; definition: string; type: string; inputAction: string; outputAction: string; examples: string[] }[] } = {
         filtersConfig: guardrailContentFilters
           .filter((f) => f.inputEnabled || f.outputEnabled)
           .map((f) => ({
@@ -517,9 +507,10 @@ export default function AgentBuilderPage() {
         payload.topicsConfig = guardrailDenyTopics.map((t) => ({
           name: t.name,
           definition: t.definition,
-          inputAction: t.inputAction,
-          outputAction: t.outputAction,
-          samplePhrases: t.samplePhrases.filter((p) => p.trim()),
+          type: 'DENY',
+          inputAction: t.inputAction || 'BLOCK',
+          outputAction: t.outputAction || 'BLOCK',
+          examples: (t.samplePhrases || []).filter((p) => p.trim()),
         }));
       }
       const contentPolicyConfig = JSON.stringify(payload);
