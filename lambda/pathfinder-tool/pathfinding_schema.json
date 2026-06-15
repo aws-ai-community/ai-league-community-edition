@@ -1,0 +1,25 @@
+[
+  {
+    "name": "pathfinding",
+    "description": "Compute a navigation path through a dungeon map using BFS pathfinding. Supports 'swift' strategy (shortest path to treasure) and 'get_coins' strategy (greedily collect c7 coins on the way to treasure). The map is a 2D grid where 'wall' cells are impassable, 'treasure' is the goal, and all other cell types are walkable.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "game_map": {
+          "type": "string",
+          "description": "JSON string of a 2D array representing the dungeon map. Each cell is a string tile code: 'wall', 'start', 'treasure', 'normal', 'c1'-'c8', etc. Example: '[[\"normal\",\"wall\"],[\"treasure\",\"normal\"]]'"
+        },
+        "start_pos": {
+          "type": "string",
+          "description": "JSON string of starting position as [row, col] (0-indexed). Example: '[0,0]'"
+        },
+        "strategy": {
+          "type": "string",
+          "description": "Pathfinding strategy to use. 'swift' for shortest BFS path, 'get_coins' to greedily collect c7 coins first.",
+          "enum": ["swift", "get_coins"]
+        }
+      },
+      "required": ["game_map", "start_pos"]
+    }
+  }
+]
