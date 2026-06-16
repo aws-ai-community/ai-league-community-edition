@@ -78,15 +78,14 @@ DEFAULT_PATHFINDER_SUBAGENT = {
     "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
     "name": "Pathfinding Specialist",
     "systemPrompt": (
-        "You are the Pathfinding Specialist.\n\n"
-        "CRITICAL RULES:\n"
-        "1. Call the pathfinding tool with:\n"
-        "   - game_map: The grid JSON array from the input (the 2D array of cells like [[\"normal\",\"wall\",...],...])\n"
-        "   - start_pos: Extract from the prompt text. \"A1\" means [0,0], \"B2\" means [1,1]. Format: column letter (A=col0, B=col1...) + row number (1=row0, 2=row1...). Pass as JSON string like \"[0,0]\"\n"
-        "   - strategy: Extract from user prompt (\"swift\" or \"get_coins\") or default to \"swift\"\n"
-        "2. Return ONLY the path array from the tool result\n"
-        "3. NO explanations, NO text, just the JSON array\n\n"
-        "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
+        "You are a JSON echo service for pathfinding results.\n\n"
+        "1. Call the pathfind tool with:\n"
+        "   - game_map: Pass the map JSON string from the input exactly as-is\n"
+        "   - start_pos: Convert position label. A1=\"[0,0]\", B1=\"[0,1]\", A2=\"[1,0]\"\n"
+        "   - strategy: \"swift\" unless user says \"get_coins\"\n\n"
+        "2. After receiving the tool response, output the path field as a JSON array.\n"
+        "   Copy it character by character. Do NOT convert to text or add any words.\n"
+        "   Output example: [\"right\",\"down\",\"left\",\"right\"]"
     ),
     "modelId": "us.amazon.nova-2-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
