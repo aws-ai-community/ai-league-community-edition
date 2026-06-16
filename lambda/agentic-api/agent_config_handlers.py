@@ -2099,3 +2099,26 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
     except Exception as e:
         logger.error("Error resetting configuration for user %s: %s", user_id, e)
         return {"success": False, "statusCode": 500, "message": f"Failed to reset configuration: {e}"}
+
+
+def handle_regenerate_tool_schema(arguments: dict, event: dict) -> dict:
+    """Regenerate the MCP Gateway tool schema for an existing Lambda tool.
+
+    Called by the schema generator EventBridge rule when Lambda code is updated.
+    Only regenerates the schema — does NOT create the Lambda function.
+
+    Args:
+        arguments.name: Tool name (without AgentCoreGatewayTool- prefix)
+    """
+    name = arguments.get("name", "")
+    if not name:
+        return {"success": False, "statusCode": 400, "message": "name is required"}
+
+    function_name = f"AgentCoreGatewayTool-{name}"
+
+    try:
+        _auto_update_gateway_schema(function_name, user_id=_get_user_id(event))
+        return {"success": True, "message": f"Schema regenerated for {function_name}"}
+    except Exception as e:
+        logger.error("Failed to regenerate schema for %s: %s", function_name, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to regenerate schema: {e}"}

@@ -134,6 +134,7 @@ def handler(event, context):
         "StopCodeEditor": agent_config_handlers.handle_stop_code_editor,
         "ResetConfiguration": agent_config_handlers.handle_reset_configuration,
         "SaveSchemaModelConfig": agent_config_handlers.handle_save_schema_model_config,
+        "RegenerateToolSchema": agent_config_handlers.handle_regenerate_tool_schema,
     }
 
     handler_fn = handlers.get(field_name)
