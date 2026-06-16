@@ -888,11 +888,11 @@ export default function AgentBuilderPage() {
                                     Edit
                                   </Button>
                                   <Button
-                                    variant="icon"
-                                    iconName="remove"
-                                    ariaLabel={`Delete ${item.name}`}
+                                    variant="inline-link"
                                     onClick={() => setDeleteLambdaToolId(item.toolId)}
-                                  />
+                                  >
+                                    Delete
+                                  </Button>
                                 </SpaceBetween>
                               ),
                           },
