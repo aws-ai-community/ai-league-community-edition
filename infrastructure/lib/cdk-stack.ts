@@ -782,7 +782,7 @@ def handler(event, context):
     tool_name = function_name.replace('AgentCoreGatewayTool-', '')
 
     payload = {
-        'info': {'fieldName': 'CreateLambdaTool'},
+        'info': {'fieldName': 'RegenerateToolSchema'},
         'identity': {'claims': {'cognito:username': 'system'}},
         'arguments': {'name': tool_name},
     }
