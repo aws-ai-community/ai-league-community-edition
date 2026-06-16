@@ -65,7 +65,7 @@ DEFAULT_SUPERVISOR_CONFIG = {
         "- For pathfinding: Return ONLY the path array like [\"right\",\"down\",\"left\"]\n"
         "- No explanations, no thinking tags, no other text"
     ),
-    "modelId": "amazon.nova-lite-v1:0",
+    "modelId": "us.amazon.nova-2-lite-v1:0",
     "subAgents": [],
     "lambdaTools": [],
     "memoryTool": None,
@@ -88,7 +88,7 @@ DEFAULT_PATHFINDER_SUBAGENT = {
         "3. NO explanations, NO text, just the JSON array\n\n"
         "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
     ),
-    "modelId": "amazon.nova-lite-v1:0",
+    "modelId": "us.amazon.nova-2-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
 }
 
@@ -519,7 +519,7 @@ def handle_create_sub_agent(arguments: dict, event: dict) -> dict:
 
     name = arguments.get("name", "")
     system_prompt = arguments.get("systemPrompt", "")
-    model_id = arguments.get("modelId", "amazon.nova-lite-v1:0")
+    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
     lambda_tools = arguments.get("lambdaTools", [])
 
     item = {
