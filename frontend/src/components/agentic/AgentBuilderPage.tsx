@@ -27,8 +27,9 @@ import {
   createSubAgent,
   updateSubAgent,
   deleteSubAgent,
-  updateLambdaTool,
+  createLambdaTool,
   deleteLambdaTool,
+  getCodeEditorStatus,
   createMemory,
   deleteMemory,
   createGuardrail,
@@ -122,8 +123,8 @@ export default function AgentBuilderPage() {
   const [deletingSubAgent, setDeletingSubAgent] = useState(false);
 
   // Lambda Tool management state
-  const [lambdaToolFormName, setLambdaToolFormName] = useState('');
-  const [lambdaToolFormArn, setLambdaToolFormArn] = useState('');
+  const [showCreateToolModal, setShowCreateToolModal] = useState(false);
+  const [createToolName, setCreateToolName] = useState('');
   const [savingLambdaTool, setSavingLambdaTool] = useState(false);
   const [deleteLambdaToolId, setDeleteLambdaToolId] = useState<string | null>(null);
   const [deletingLambdaTool, setDeletingLambdaTool] = useState(false);
@@ -391,20 +392,35 @@ export default function AgentBuilderPage() {
   const isPathfinderTool = (tool: LambdaToolConfig) =>
     tool.toolId === 'pathfinder-default' || tool.name.toLowerCase().includes('pathfinder');
 
-  const handleRegisterLambdaTool = async () => {
-    if (!lambdaToolFormName.trim() || !lambdaToolFormArn.trim()) return;
+  const handleCreateLambdaTool = async () => {
+    if (!createToolName.trim()) return;
     setSavingLambdaTool(true);
     try {
-      await updateLambdaTool({ name: lambdaToolFormName.trim(), functionName: lambdaToolFormArn.trim() });
-      addFlash('success', `Lambda tool "${lambdaToolFormName}" registered successfully.`);
-      setLambdaToolFormName('');
-      setLambdaToolFormArn('');
+      await createLambdaTool(createToolName.trim());
+      addFlash('success', `Lambda tool "${createToolName}" created successfully.`);
+      setCreateToolName('');
+      setShowCreateToolModal(false);
       const res = await listLambdaTools();
       setLambdaTools(res.ListLambdaTool || []);
     } catch (err: unknown) {
-      addFlash('error', `Failed to register Lambda tool: ${err instanceof Error ? err.message : String(err)}`);
+      addFlash('error', `Failed to create Lambda tool: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSavingLambdaTool(false);
+    }
+  };
+
+  const handleEditLambdaTool = async (tool: LambdaToolConfig) => {
+    try {
+      const res = await getCodeEditorStatus();
+      const status = res.GetCodeEditorStatus.status;
+      if (status === 'InService') {
+        // Open the SageMaker Code Editor presigned URL in a new tab
+        window.open(`/ide?tool=${encodeURIComponent(tool.functionName)}`, '_blank');
+      } else {
+        addFlash('warning', 'Start the IDE from the Configuration page first.');
+      }
+    } catch {
+      addFlash('warning', 'Start the IDE from the Configuration page first.');
     }
   };
 
@@ -853,13 +869,10 @@ export default function AgentBuilderPage() {
                   id: 'lambda-tools',
                   content: (
                     <SpaceBetween size="l">
-                      {/* TODO: Phase 3/4 — Add Lambda function creation with SageMaker Code Editor integration.
-                          Currently users register existing Lambda ARNs. Future phases will allow creating new
-                          Lambda functions with hello-world templates and editing them in-browser via the IDE. */}
                       <Table
                         columnDefinitions={[
                           { id: 'name', header: 'Name', cell: (item: LambdaToolConfig) => item.name },
-                          { id: 'functionName', header: 'Function ARN', cell: (item: LambdaToolConfig) => item.functionName },
+                          { id: 'functionName', header: 'Function Name', cell: (item: LambdaToolConfig) => item.functionName },
                           {
                             id: 'actions',
                             header: 'Actions',
@@ -867,12 +880,20 @@ export default function AgentBuilderPage() {
                               isPathfinderTool(item) ? (
                                 <StatusIndicator type="info">Default</StatusIndicator>
                               ) : (
-                                <Button
-                                  variant="icon"
-                                  iconName="remove"
-                                  ariaLabel={`Delete ${item.name}`}
-                                  onClick={() => setDeleteLambdaToolId(item.toolId)}
-                                />
+                                <SpaceBetween direction="horizontal" size="xs">
+                                  <Button
+                                    variant="inline-link"
+                                    onClick={() => handleEditLambdaTool(item)}
+                                  >
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="icon"
+                                    iconName="remove"
+                                    ariaLabel={`Delete ${item.name}`}
+                                    onClick={() => setDeleteLambdaToolId(item.toolId)}
+                                  />
+                                </SpaceBetween>
                               ),
                           },
                         ]}
@@ -884,33 +905,12 @@ export default function AgentBuilderPage() {
                         }
                         variant="embedded"
                       />
-                      <SpaceBetween size="s">
-                        <Header variant="h3">Register Tool</Header>
-                        <FormField label="Tool Name">
-                          <Input
-                            value={lambdaToolFormName}
-                            onChange={({ detail }) => setLambdaToolFormName(detail.value)}
-                            placeholder="e.g., Code Interpreter"
-                            ariaLabel="Lambda tool name"
-                          />
-                        </FormField>
-                        <FormField label="Function ARN">
-                          <Input
-                            value={lambdaToolFormArn}
-                            onChange={({ detail }) => setLambdaToolFormArn(detail.value)}
-                            placeholder="arn:aws:lambda:us-east-1:123456789:function:my-tool"
-                            ariaLabel="Lambda function ARN"
-                          />
-                        </FormField>
-                        <Button
-                          variant="primary"
-                          onClick={handleRegisterLambdaTool}
-                          loading={savingLambdaTool}
-                          disabled={!lambdaToolFormName.trim() || !lambdaToolFormArn.trim()}
-                        >
-                          Register Tool
-                        </Button>
-                      </SpaceBetween>
+                      <Button
+                        variant="primary"
+                        onClick={() => { setCreateToolName(''); setShowCreateToolModal(true); }}
+                      >
+                        Create Tool
+                      </Button>
                     </SpaceBetween>
                   ),
                 },
@@ -1140,7 +1140,41 @@ export default function AgentBuilderPage() {
           </Box>
         }
       >
-        Are you sure you want to delete this Lambda tool? This action cannot be undone.
+        Are you sure you want to delete this Lambda tool? This will permanently delete the Lambda function and its Gateway target. This action cannot be undone.
+      </Modal>
+
+      {/* Create Lambda Tool Modal */}
+      <Modal
+        visible={showCreateToolModal}
+        onDismiss={() => setShowCreateToolModal(false)}
+        header="Create Tool"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setShowCreateToolModal(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateLambdaTool}
+                loading={savingLambdaTool}
+                disabled={!createToolName.trim()}
+              >
+                Create
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <FormField
+          label="Tool Name"
+          description="The Lambda function will be created as AgentCoreGatewayTool-{name}."
+        >
+          <Input
+            value={createToolName}
+            onChange={({ detail }) => setCreateToolName(detail.value)}
+            placeholder="e.g., MyTool"
+            ariaLabel="New Lambda tool name"
+          />
+        </FormField>
       </Modal>
 
       {/* Delete Memory Tool Confirmation Modal */}

@@ -269,20 +269,20 @@ def test_property_4_sub_agent_list_completeness(configs):
 # ---------------------------------------------------------------------------
 # Property 5: Lambda Tool Registration Round-Trip
 # **Validates: Requirements 5.1, 5.2**
+# NOTE: Updated to use handle_create_lambda_tool (replaces handle_update_lambda_tool)
 # ---------------------------------------------------------------------------
 
 
 @given(
-    name=safe_text,
-    function_name=safe_text,
+    name=st.from_regex(r"[A-Za-z][A-Za-z0-9_-]{0,30}", fullmatch=True),
 )
 @settings(max_examples=100, deadline=None)
-def test_property_5_lambda_tool_round_trip(name, function_name):
+def test_property_5_lambda_tool_round_trip(name):
     """**Validates: Requirements 5.1, 5.2**
 
-    For any valid Lambda tool configuration (name, functionName), registering
-    via handle_update_lambda_tool and then listing via handle_list_lambda_tool
-    SHALL include a tool with matching name and functionName.
+    For any valid Lambda tool name, creating via handle_create_lambda_tool
+    and then listing via handle_list_lambda_tool SHALL include a tool with
+    matching name and functionName = AgentCoreGatewayTool-{name}.
     """
     with mock_aws():
         _create_table_and_patch()
@@ -290,23 +290,42 @@ def test_property_5_lambda_tool_round_trip(name, function_name):
         user_id = "test-user-prop5"
         event = _make_event(user_id)
 
-        # Register the Lambda tool
-        arguments = {
-            "name": name,
-            "functionName": function_name,
-        }
-        register_result = agent_config_handlers.handle_update_lambda_tool(arguments, event)
-        assert register_result.get("success") is True, f"Register failed: {register_result}"
+        # Create the IAM role that Lambda can assume (required by moto)
+        import json as _json
+        iam_client = boto3.client("iam", region_name="us-east-1")
+        assume_role_policy = _json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {"Service": "lambda.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            }]
+        })
+        role_response = iam_client.create_role(
+            RoleName="LambdaToolRole",
+            AssumeRolePolicyDocument=assume_role_policy,
+            Path="/",
+        )
+        role_arn = role_response["Role"]["Arn"]
+
+        # Set up required env var for LAMBDA_TOOL_ROLE_ARN
+        os.environ["LAMBDA_TOOL_ROLE_ARN"] = role_arn
+
+        # Create the Lambda tool (moto mocks the Lambda service)
+        arguments = {"name": name}
+        create_result = agent_config_handlers.handle_create_lambda_tool(arguments, event)
+        assert create_result.get("toolId") is not None, f"Create failed: {create_result}"
+        assert create_result.get("functionName") == f"AgentCoreGatewayTool-{name}"
 
         # List Lambda tools
         list_result = agent_config_handlers.handle_list_lambda_tool({}, event)
 
-        # Verify the registered tool appears in the list with matching fields
+        # Verify the created tool appears in the list with matching fields
         matching_tools = [
             tool for tool in list_result
-            if tool["name"] == name and tool["functionName"] == function_name
+            if tool["name"] == name and tool["functionName"] == f"AgentCoreGatewayTool-{name}"
         ]
         assert len(matching_tools) >= 1, (
-            f"Expected tool with name='{name}' and functionName='{function_name}' "
+            f"Expected tool with name='{name}' and functionName='AgentCoreGatewayTool-{name}' "
             f"in list result. Got: {list_result}"
         )
