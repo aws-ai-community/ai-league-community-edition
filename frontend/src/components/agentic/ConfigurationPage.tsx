@@ -183,8 +183,8 @@ export default function ConfigurationPage() {
           setIdeStatus(ideResult.GetCodeEditorStatus.status);
 
           // Schema model config
-          const schemaModelId = schemaResult.GetSchemaModelConfig.modelId;
-          setSchemaModel(findModelOption(schemaModelId) ?? findModelOption(DEFAULT_MODEL_ID));
+          const schemaModelId = schemaResult?.GetSchemaModelConfig?.modelId;
+          setSchemaModel(findModelOption(schemaModelId ?? null) ?? findModelOption(DEFAULT_MODEL_ID));
         }
       } catch (err: unknown) {
         if (!cancelled) {
