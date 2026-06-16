@@ -649,6 +649,7 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
     """List all sub-agents for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "SUBAGENT#".
+    If no sub-agents found, checks if seeding is needed and seeds defaults.
     Returns a list of sub-agent summaries (agentId, name, modelId).
 
     Requirements: 4.4, 4.8
@@ -669,6 +670,31 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
+
+    # If no sub-agents found, check if we need to seed defaults
+    if not items:
+        # Try direct get for the default sub-agent (consistent read)
+        try:
+            direct = agent_configurations_table.get_item(
+                Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
+                ConsistentRead=True,
+            )
+            if direct.get("Item"):
+                items = [direct["Item"]]
+            else:
+                # Seed defaults and return the seeded sub-agent
+                _seed_defaults_for_user(user_id)
+                items = [{
+                    "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
+                    "userId": user_id,
+                    "name": DEFAULT_PATHFINDER_SUBAGENT["name"],
+                    "systemPrompt": DEFAULT_PATHFINDER_SUBAGENT["systemPrompt"],
+                    "modelId": DEFAULT_PATHFINDER_SUBAGENT["modelId"],
+                    "lambdaTools": DEFAULT_PATHFINDER_SUBAGENT["lambdaTools"],
+                }]
+        except Exception:
+            pass
+
     return [
         {
             "agentId": item.get("agentId"),
