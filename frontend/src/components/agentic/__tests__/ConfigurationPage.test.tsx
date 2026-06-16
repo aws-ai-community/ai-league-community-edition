@@ -38,7 +38,7 @@ describe('ConfigurationPage', () => {
 
     await waitFor(() => {
       const pageText = container.textContent || '';
-      // Verify key phrases from the wealth warning
+      // Verify key phrases from the model costs alert
       expect(pageText).toContain('not typically covered by AWS credits');
       expect(pageText).toContain('Nova 2 Lite is covered by AWS credits');
     });

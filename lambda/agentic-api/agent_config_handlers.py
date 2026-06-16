@@ -682,18 +682,16 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
             if direct.get("Item"):
                 items = [direct["Item"]]
             else:
-                # Seed defaults and return the seeded sub-agent
+                # Seed defaults and re-read the stored item
                 _seed_defaults_for_user(user_id)
-                items = [{
-                    "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
-                    "userId": user_id,
-                    "name": DEFAULT_PATHFINDER_SUBAGENT["name"],
-                    "systemPrompt": DEFAULT_PATHFINDER_SUBAGENT["systemPrompt"],
-                    "modelId": DEFAULT_PATHFINDER_SUBAGENT["modelId"],
-                    "lambdaTools": DEFAULT_PATHFINDER_SUBAGENT["lambdaTools"],
-                }]
-        except Exception:
-            pass
+                seeded = agent_configurations_table.get_item(
+                    Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
+                    ConsistentRead=True,
+                )
+                if seeded.get("Item"):
+                    items = [seeded["Item"]]
+        except Exception as e:
+            logger.warning(f"Failed to seed/read default sub-agent for {user_id}: {e}")
 
     return [
         {
