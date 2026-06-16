@@ -1953,6 +1953,7 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
                 logger.warning("Reset: Failed to delete Lambda tool record %s: %s", tool_id, e)
 
         # Step 3: Delete all MEMORY# records — query main table directly to get memoryId
+        # Collect memoryIds FIRST, then delete AWS resources, then delete DynamoDB records
         try:
             memory_response = agent_configurations_table.query(
                 KeyConditionExpression="userId = :uid AND begins_with(sk, :prefix)",
@@ -1970,7 +1971,7 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
             mem_tool_id = item.get("toolId", "")
             memory_id = item.get("memoryId", "")
 
-            # Delete AgentCore memory instance (best effort)
+            # Delete AgentCore memory instance FIRST (before DynamoDB record)
             if memory_id:
                 try:
                     client = _get_bedrock_agentcore_control_client()
@@ -1979,7 +1980,7 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
                 except Exception as e:
                     logger.warning("Reset: Failed to delete AgentCore Memory %s: %s", memory_id, e)
 
-            # Delete DynamoDB record
+            # Delete DynamoDB record only after AWS resource deletion attempted
             try:
                 agent_configurations_table.delete_item(
                     Key={"userId": user_id, "sk": f"MEMORY#{mem_tool_id}"}
