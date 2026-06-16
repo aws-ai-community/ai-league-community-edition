@@ -21,20 +21,11 @@ interface ModelDefinition {
 }
 
 const AVAILABLE_MODELS: ModelDefinition[] = [
-  { modelId: 'amazon.nova-micro-v1:0', displayName: 'Nova Micro', family: 'Amazon Nova', hasCostWarning: false },
-  { modelId: 'amazon.nova-lite-v1:0', displayName: 'Nova Lite (Default)', family: 'Amazon Nova', hasCostWarning: false },
-  { modelId: 'amazon.nova-pro-v1:0', displayName: 'Nova Pro', family: 'Amazon Nova', hasCostWarning: false },
-  { modelId: 'deepseek.deepseek-v3-2-0:0', displayName: 'DeepSeek V3.2', family: 'DeepSeek', hasCostWarning: false },
-  { modelId: 'meta.llama3-3-70b-instruct-v1:0', displayName: 'Llama 3.3 70B', family: 'Meta Llama', hasCostWarning: false },
-  { modelId: 'meta.llama4-scout-17b-16e-instruct-v1:0', displayName: 'Llama 4 Scout', family: 'Meta Llama', hasCostWarning: false },
-  { modelId: 'meta.llama4-maverick-17b-128e-instruct-v1:0', displayName: 'Llama 4 Maverick', family: 'Meta Llama', hasCostWarning: false },
-  { modelId: 'mistral.mistral-large-2411-v1:0', displayName: 'Mistral Large 3', family: 'Mistral', hasCostWarning: false },
-  { modelId: 'mistral.magistral-small-2506-v1:0', displayName: 'Magistral Small', family: 'Mistral', hasCostWarning: false },
-  { modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', displayName: '⚠️ Claude Sonnet 4', family: 'Anthropic Claude', hasCostWarning: true },
-  { modelId: 'anthropic.claude-3-7-sonnet-20250219-v1:0', displayName: '⚠️ Claude 3.7 Sonnet', family: 'Anthropic Claude', hasCostWarning: true },
+  { modelId: 'us.amazon.nova-2-lite-v1:0', displayName: 'Nova 2 Lite', family: 'Amazon Nova', hasCostWarning: false },
+  { modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', displayName: 'Claude Haiku 4.5', family: 'Anthropic', hasCostWarning: true },
 ];
 
-const DEFAULT_MODEL_ID = 'amazon.nova-lite-v1:0';
+const DEFAULT_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
 
 const USE_DEFAULT_OPTION: SelectProps.Option = {
   label: 'Use Default',
@@ -180,10 +171,8 @@ export default function ConfigurationPage() {
     <SpaceBetween size="l">
       <Header variant="h1">Configuration</Header>
 
-      <Alert type="warning" header="Wealth Warning">
-        Amazon Nova and third-party models (DeepSeek, Llama, Mistral) may be covered by AWS
-        credits but it is your responsibility to confirm. Claude models are explicitly NOT
-        covered by AWS credits. You are responsible for all LLM costs incurred.
+      <Alert type="info" header="Model Costs">
+        Nova 2 Lite is covered by AWS credits. Claude Haiku 4.5 is higher quality but not typically covered by AWS credits.
       </Alert>
 
       {error && (

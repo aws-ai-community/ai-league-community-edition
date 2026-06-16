@@ -18,7 +18,7 @@ describe('ConfigurationPage', () => {
     vi.clearAllMocks();
     mockGetLlmConfiguration.mockResolvedValue({
       GetLlmConfiguration: {
-        defaultModel: 'amazon.nova-lite-v1:0',
+        defaultModel: 'us.amazon.nova-2-lite-v1:0',
         challengeGeneration: null,
         challengeGrading: null,
         gameCommentary: null,
@@ -33,14 +33,14 @@ describe('ConfigurationPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('wealth warning alert renders with correct text', async () => {
+  it('model costs alert renders with correct text', async () => {
     const { container } = render(<ConfigurationPage />);
 
     await waitFor(() => {
       const pageText = container.textContent || '';
-      // Verify key phrases from the wealth warning
-      expect(pageText).toContain('Claude models are explicitly NOT covered by AWS credits');
-      expect(pageText).toContain('You are responsible for all LLM costs incurred');
+      // Verify key phrases from the model costs alert
+      expect(pageText).toContain('not typically covered by AWS credits');
+      expect(pageText).toContain('Nova 2 Lite is covered by AWS credits');
     });
   });
 
@@ -59,12 +59,12 @@ describe('ConfigurationPage', () => {
     expect(pageText).toContain('Game Commentary');
   });
 
-  it('Claude models warning is mentioned in the wealth warning', async () => {
+  it('Claude Haiku cost warning is shown', async () => {
     const { container } = render(<ConfigurationPage />);
 
     await waitFor(() => {
       const pageText = container.textContent || '';
-      expect(pageText).toContain('Claude models are explicitly NOT covered by AWS credits');
+      expect(pageText).toContain('not typically covered by AWS credits');
     });
   });
 
@@ -84,7 +84,7 @@ describe('ConfigurationPage', () => {
 
     expect(mockSaveLlmConfiguration).toHaveBeenCalledWith(
       expect.objectContaining({
-        defaultModel: 'amazon.nova-lite-v1:0',
+        defaultModel: 'us.amazon.nova-2-lite-v1:0',
       }),
     );
   });
@@ -92,7 +92,7 @@ describe('ConfigurationPage', () => {
   it('reset returns all to default then save uses default model', async () => {
     mockGetLlmConfiguration.mockResolvedValue({
       GetLlmConfiguration: {
-        defaultModel: 'amazon.nova-pro-v1:0',
+        defaultModel: 'us.amazon.nova-2-lite-v1:0',
         challengeGeneration: 'meta.llama3-3-70b-instruct-v1:0',
         challengeGrading: null,
         gameCommentary: null,
@@ -117,7 +117,7 @@ describe('ConfigurationPage', () => {
 
     expect(mockSaveLlmConfiguration).toHaveBeenCalledWith(
       expect.objectContaining({
-        defaultModel: 'amazon.nova-lite-v1:0',
+        defaultModel: 'us.amazon.nova-2-lite-v1:0',
       }),
     );
   });

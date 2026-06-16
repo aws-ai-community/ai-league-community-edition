@@ -587,10 +587,8 @@ export default function AgentBuilderPage() {
     <SpaceBetween size="l">
       <Header variant="h1">Agent Builder</Header>
 
-      <Alert type="warning" header="Wealth Warning">
-        Amazon Nova and third-party models (DeepSeek, Llama, Mistral) may be covered by AWS
-        credits but it is your responsibility to confirm. Claude models are explicitly NOT
-        covered by AWS credits. You are responsible for all LLM costs incurred.
+      <Alert type="info" header="Model Costs">
+        Nova 2 Lite is covered by AWS credits. Claude Haiku 4.5 is higher quality but not typically covered by AWS credits.
       </Alert>
 
       <Flashbar items={flashItems} />

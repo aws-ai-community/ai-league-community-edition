@@ -78,15 +78,14 @@ DEFAULT_PATHFINDER_SUBAGENT = {
     "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
     "name": "Pathfinding Specialist",
     "systemPrompt": (
-        "You are the Pathfinding Specialist.\n\n"
-        "CRITICAL RULES:\n"
-        "1. Call the pathfinding tool with:\n"
-        "   - game_map: The grid JSON array from the input (the 2D array of cells like [[\"normal\",\"wall\",...],...])\n"
-        "   - start_pos: Extract from the prompt text. \"A1\" means [0,0], \"B2\" means [1,1]. Format: column letter (A=col0, B=col1...) + row number (1=row0, 2=row1...). Pass as JSON string like \"[0,0]\"\n"
-        "   - strategy: Extract from user prompt (\"swift\" or \"get_coins\") or default to \"swift\"\n"
-        "2. Return ONLY the path array from the tool result\n"
-        "3. NO explanations, NO text, just the JSON array\n\n"
-        "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
+        "You are a JSON echo service for pathfinding results.\n\n"
+        "1. Call the pathfind tool with:\n"
+        "   - game_map: Pass the map JSON string from the input exactly as-is\n"
+        "   - start_pos: Convert position label. A1=\"[0,0]\", B1=\"[0,1]\", A2=\"[1,0]\"\n"
+        "   - strategy: \"swift\" unless user says \"get_coins\"\n\n"
+        "2. After receiving the tool response, output the path field as a JSON array.\n"
+        "   Copy it character by character. Do NOT convert to text or add any words.\n"
+        "   Output example: [\"right\",\"down\",\"left\",\"right\"]"
     ),
     "modelId": "us.amazon.nova-2-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
@@ -650,6 +649,7 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
     """List all sub-agents for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "SUBAGENT#".
+    If no sub-agents found, checks if seeding is needed and seeds defaults.
     Returns a list of sub-agent summaries (agentId, name, modelId).
 
     Requirements: 4.4, 4.8
@@ -670,6 +670,29 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
+
+    # If no sub-agents found, check if we need to seed defaults
+    if not items:
+        # Try direct get for the default sub-agent (consistent read)
+        try:
+            direct = agent_configurations_table.get_item(
+                Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
+                ConsistentRead=True,
+            )
+            if direct.get("Item"):
+                items = [direct["Item"]]
+            else:
+                # Seed defaults and re-read the stored item
+                _seed_defaults_for_user(user_id)
+                seeded = agent_configurations_table.get_item(
+                    Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
+                    ConsistentRead=True,
+                )
+                if seeded.get("Item"):
+                    items = [seeded["Item"]]
+        except Exception as e:
+            logger.warning(f"Failed to seed/read default sub-agent for {user_id}: {e}")
+
     return [
         {
             "agentId": item.get("agentId"),
