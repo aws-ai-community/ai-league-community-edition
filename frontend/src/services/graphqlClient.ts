@@ -824,6 +824,11 @@ export async function resetConfiguration(): Promise<{ ResetConfiguration: Mutati
   return graphqlRequest<{ ResetConfiguration: MutationResponse }>(query, undefined, true);
 }
 
+export async function getPresignedDomainUrl(): Promise<{ GetPresignedDomainUrl: { authorizedUrl: string; error?: string } }> {
+  const query = `query { GetPresignedDomainUrl { authorizedUrl error } }`;
+  return graphqlRequest<{ GetPresignedDomainUrl: { authorizedUrl: string; error?: string } }>(query, undefined, true);
+}
+
 export async function createModel(config: { name: string; resourceIdentifier: string; type: string; pathfindingPromptStrategy?: string }): Promise<{ CreateModel: CreateModelResponse }> {
   const query = `
     mutation CreateModel($name: String!, $resourceIdentifier: String!, $type: String!, $pathfindingPromptStrategy: String) {

@@ -1005,6 +1005,10 @@ def handler(event, context):
       typeName: 'Query',
       fieldName: 'GetCodeEditorStatus',
     });
+    agenticDataSource.createResolver('GetPresignedDomainUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetPresignedDomainUrl',
+    });
 
     // Phase 2 Mutation resolvers (Agent Builder)
     agenticDataSource.createResolver('UpdateSupervisorAgentResolver', {

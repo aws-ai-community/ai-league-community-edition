@@ -112,6 +112,7 @@ def handler(event, context):
         # Phase 3 Queries
         "GetCodeEditorStatus": agent_config_handlers.handle_get_code_editor_status,
         "GetSchemaModelConfig": agent_config_handlers.handle_get_schema_model_config,
+        "GetPresignedDomainUrl": agent_config_handlers.handle_get_presigned_domain_url,
         # Mutations
         "InvokeAgentCoreRuntime": handle_invoke_agent_core_runtime,
         "SubmitToLeaderboard": handle_submit_to_leaderboard,

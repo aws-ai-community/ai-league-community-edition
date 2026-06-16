@@ -65,7 +65,7 @@ DEFAULT_SUPERVISOR_CONFIG = {
         "- For pathfinding: Return ONLY the path array like [\"right\",\"down\",\"left\"]\n"
         "- No explanations, no thinking tags, no other text"
     ),
-    "modelId": "us.amazon.nova-2-lite-v1:0",
+    "modelId": "amazon.nova-lite-v1:0",
     "subAgents": [],
     "lambdaTools": [],
     "memoryTool": None,
@@ -78,16 +78,17 @@ DEFAULT_PATHFINDER_SUBAGENT = {
     "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
     "name": "Pathfinding Specialist",
     "systemPrompt": (
-        "You are a JSON echo service for pathfinding results.\n\n"
-        "1. Call the pathfind tool with:\n"
-        "   - game_map: Pass the map JSON string from the input exactly as-is\n"
-        "   - start_pos: Convert position label. A1=\"[0,0]\", B1=\"[0,1]\", A2=\"[1,0]\"\n"
-        "   - strategy: \"swift\" unless user says \"get_coins\"\n\n"
-        "2. After receiving the tool response, output the path field as a JSON array.\n"
-        "   Copy it character by character. Do NOT convert to text or add any words.\n"
-        "   Output example: [\"right\",\"down\",\"left\",\"right\"]"
+        "You are the Pathfinding Specialist.\n\n"
+        "CRITICAL RULES:\n"
+        "1. Call the pathfinding tool with:\n"
+        "   - game_map: The grid JSON array from the input (the 2D array of cells like [[\"normal\",\"wall\",...],...])\n"
+        "   - start_pos: Extract from the prompt text. \"A1\" means [0,0], \"B2\" means [1,1]. Format: column letter (A=col0, B=col1...) + row number (1=row0, 2=row1...). Pass as JSON string like \"[0,0]\"\n"
+        "   - strategy: Extract from user prompt (\"swift\" or \"get_coins\") or default to \"swift\"\n"
+        "2. Return ONLY the path array from the tool result\n"
+        "3. NO explanations, NO text, just the JSON array\n\n"
+        "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
     ),
-    "modelId": "us.amazon.nova-2-lite-v1:0",
+    "modelId": "amazon.nova-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
 }
 
@@ -518,7 +519,7 @@ def handle_create_sub_agent(arguments: dict, event: dict) -> dict:
 
     name = arguments.get("name", "")
     system_prompt = arguments.get("systemPrompt", "")
-    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
+    model_id = arguments.get("modelId", "amazon.nova-lite-v1:0")
     lambda_tools = arguments.get("lambdaTools", [])
 
     item = {
@@ -649,7 +650,6 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
     """List all sub-agents for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "SUBAGENT#".
-    If no sub-agents found, checks if seeding is needed and seeds defaults.
     Returns a list of sub-agent summaries (agentId, name, modelId).
 
     Requirements: 4.4, 4.8
@@ -670,29 +670,6 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
-
-    # If no sub-agents found, check if we need to seed defaults
-    if not items:
-        # Try direct get for the default sub-agent (consistent read)
-        try:
-            direct = agent_configurations_table.get_item(
-                Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
-                ConsistentRead=True,
-            )
-            if direct.get("Item"):
-                items = [direct["Item"]]
-            else:
-                # Seed defaults and re-read the stored item
-                _seed_defaults_for_user(user_id)
-                seeded = agent_configurations_table.get_item(
-                    Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
-                    ConsistentRead=True,
-                )
-                if seeded.get("Item"):
-                    items = [seeded["Item"]]
-        except Exception as e:
-            logger.warning(f"Failed to seed/read default sub-agent for {user_id}: {e}")
-
     return [
         {
             "agentId": item.get("agentId"),
@@ -1194,7 +1171,8 @@ def handle_list_lambda_tool(arguments: dict, event: dict) -> list:
     """List all Lambda tools for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "LAMBDA#".
-    If no tools exist, seeds the default Pathfinder tool so it shows up.
+    Returns whatever tools exist (does NOT auto-seed; seeding only happens on
+    first access via handle_get_supervisor_agent → _seed_defaults_for_user).
 
     Requirements: 5.2
     """
@@ -1214,38 +1192,6 @@ def handle_list_lambda_tool(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
-
-    # If no Lambda tools exist, seed the default Pathfinder tool
-    if not items:
-        now = _now_iso()
-        default_tool = {
-            "userId": user_id,
-            "sk": "LAMBDA#pathfinder-default",
-            "toolId": "pathfinder-default",
-            "name": "Pathfinder",
-            "functionName": "AgentCoreGatewayTool-Pathfinder",
-            "runtime": "python3.12",
-            "gsi1pk": f"USER#{user_id}",
-            "gsi1sk": f"LAMBDA#{now}",
-            "createdAt": now,
-            "updatedAt": now,
-        }
-        try:
-            agent_configurations_table.put_item(
-                Item=default_tool,
-                ConditionExpression="attribute_not_exists(sk)",
-            )
-            items = [default_tool]
-        except Exception:
-            # Already exists or write failed — try reading directly
-            try:
-                direct = agent_configurations_table.get_item(
-                    Key={"userId": user_id, "sk": "LAMBDA#pathfinder-default"}
-                )
-                if direct.get("Item"):
-                    items = [direct["Item"]]
-            except Exception:
-                pass
 
     return [
         {
@@ -1700,13 +1646,14 @@ def handle_start_code_editor(arguments: dict, event: dict) -> dict:
                 return {"status": status, "message": f"Code Editor is {status}"}
             if status == "Deleting":
                 return {"status": "Deleting", "message": "Code Editor is stopping, please try again later"}
+            # Any other status (Failed, Deleted, etc.) — proceed to create
         except Exception as e:
-            # ResourceNotFound means app doesn't exist — proceed to create
+            # Any exception from describe_app means we should try to create
+            # ResourceNotFound, ValidationException, or unexpected errors all handled here
             error_code = ""
             if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
                 error_code = e.response["Error"].get("Code", "")
-            if error_code not in ("ResourceNotFound", "ValidationException"):
-                logger.warning("Error checking Code Editor status: [%s] %s", error_code, e)
+            logger.info("describe_app returned error [%s]: %s — proceeding to create_app", error_code, e)
 
         # Create the app
         sm.create_app(
@@ -1714,11 +1661,7 @@ def handle_start_code_editor(arguments: dict, event: dict) -> dict:
             SpaceName=space_name,
             AppType="CodeEditor",
             AppName="default",
-            ResourceSpec={
-                "SageMakerImageArn": "arn:aws:sagemaker:us-east-1:885854791233:image/sagemaker-distribution-cpu",
-                "SageMakerImageVersionAlias": "4",
-                "InstanceType": "ml.t3.medium",
-            },
+            ResourceSpec={"InstanceType": "ml.t3.medium"},
         )
         return {"status": "Pending", "message": "Code Editor starting"}
 
@@ -1814,6 +1757,34 @@ def _map_ide_status(raw_status: str) -> str:
     else:
         # Deleted, Failed, Unknown, or any other status → Stopped
         return "Stopped"
+
+
+def handle_get_presigned_domain_url(arguments: dict, event: dict) -> dict:
+    """Generate a presigned URL for the SageMaker domain IDE.
+
+    Uses create_presigned_domain_url to get a short-lived authenticated URL
+    that opens the Code Editor space directly in the browser.
+    """
+    domain_id = os.environ.get("SAGEMAKER_DOMAIN_ID", "")
+    user_profile_name = os.environ.get("SAGEMAKER_USER_PROFILE", "")
+    space_name = os.environ.get("SAGEMAKER_SPACE_NAME", "ai-league-codeeditor")
+
+    if not domain_id or not user_profile_name:
+        return {"authorizedUrl": "", "error": "SageMaker not configured"}
+
+    try:
+        sm = boto3.client("sagemaker")
+        resp = sm.create_presigned_domain_url(
+            DomainId=domain_id,
+            UserProfileName=user_profile_name,
+            SpaceName=space_name,
+            ExpiresInSeconds=300,
+            SessionExpirationDurationInSeconds=43200,
+        )
+        return {"authorizedUrl": resp.get("AuthorizedUrl", "")}
+    except Exception as e:
+        logger.error("Failed to generate presigned URL: %s", e)
+        return {"authorizedUrl": "", "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -1981,7 +1952,77 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
             except Exception as e:
                 logger.warning("Reset: Failed to delete Lambda tool record %s: %s", tool_id, e)
 
-        # Step 3: Delete SUPERVISOR record so it gets re-seeded
+        # Step 3: Delete all MEMORY# records — query main table directly to get memoryId
+        try:
+            memory_response = agent_configurations_table.query(
+                KeyConditionExpression="userId = :uid AND begins_with(sk, :prefix)",
+                ExpressionAttributeValues={
+                    ":uid": user_id,
+                    ":prefix": "MEMORY#",
+                },
+            )
+            memory_tools = memory_response.get("Items", [])
+        except Exception as e:
+            logger.warning("Reset: Failed to query memory tools: %s", e)
+            memory_tools = []
+
+        for item in memory_tools:
+            mem_tool_id = item.get("toolId", "")
+            memory_id = item.get("memoryId", "")
+
+            # Delete AgentCore memory instance (best effort)
+            if memory_id:
+                try:
+                    client = _get_bedrock_agentcore_control_client()
+                    client.delete_memory(memoryId=memory_id)
+                    logger.info("Reset: Deleted AgentCore Memory %s", memory_id)
+                except Exception as e:
+                    logger.warning("Reset: Failed to delete AgentCore Memory %s: %s", memory_id, e)
+
+            # Delete DynamoDB record
+            try:
+                agent_configurations_table.delete_item(
+                    Key={"userId": user_id, "sk": f"MEMORY#{mem_tool_id}"}
+                )
+            except Exception as e:
+                logger.warning("Reset: Failed to delete memory tool record %s: %s", mem_tool_id, e)
+
+        # Step 4: Delete all GUARDRAIL# records — query main table directly to get guardrailId
+        try:
+            guardrail_response = agent_configurations_table.query(
+                KeyConditionExpression="userId = :uid AND begins_with(sk, :prefix)",
+                ExpressionAttributeValues={
+                    ":uid": user_id,
+                    ":prefix": "GUARDRAIL#",
+                },
+            )
+            guardrail_tools = guardrail_response.get("Items", [])
+        except Exception as e:
+            logger.warning("Reset: Failed to query guardrail tools: %s", e)
+            guardrail_tools = []
+
+        for item in guardrail_tools:
+            gr_tool_id = item.get("toolId", "")
+            guardrail_id = item.get("guardrailId", "")
+
+            # Delete Bedrock guardrail (best effort)
+            if guardrail_id:
+                try:
+                    client = _get_bedrock_client()
+                    client.delete_guardrail(guardrailIdentifier=guardrail_id)
+                    logger.info("Reset: Deleted Bedrock Guardrail %s", guardrail_id)
+                except Exception as e:
+                    logger.warning("Reset: Failed to delete Bedrock Guardrail %s: %s", guardrail_id, e)
+
+            # Delete DynamoDB record
+            try:
+                agent_configurations_table.delete_item(
+                    Key={"userId": user_id, "sk": f"GUARDRAIL#{gr_tool_id}"}
+                )
+            except Exception as e:
+                logger.warning("Reset: Failed to delete guardrail tool record %s: %s", gr_tool_id, e)
+
+        # Step 5: Delete SUPERVISOR record so it gets re-seeded
         try:
             agent_configurations_table.delete_item(
                 Key={"userId": user_id, "sk": "SUPERVISOR"}
@@ -2003,8 +2044,54 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
         except Exception:
             pass
 
-        # Step 4: Re-seed defaults
+        # Step 6: Re-seed defaults
         _seed_defaults_for_user(user_id)
+
+        # Force overwrite the supervisor to ensure correct state (pathfinder attached)
+        agent_configurations_table.put_item(Item={
+            "userId": user_id,
+            "sk": "SUPERVISOR",
+            "name": DEFAULT_SUPERVISOR_CONFIG["name"],
+            "systemPrompt": DEFAULT_SUPERVISOR_CONFIG["systemPrompt"],
+            "modelId": DEFAULT_SUPERVISOR_CONFIG["modelId"],
+            "subAgents": [DEFAULT_PATHFINDER_SUBAGENT_ID],
+            "lambdaTools": DEFAULT_SUPERVISOR_CONFIG["lambdaTools"],
+            "memoryTool": None,
+            "guardrailTool": None,
+            "createdAt": _now_iso(),
+            "updatedAt": _now_iso(),
+        })
+
+        # Ensure the Pathfinder Lambda function exists in AWS (recreate if user deleted it)
+        try:
+            lambda_client.get_function(FunctionName="AgentCoreGatewayTool-Pathfinder")
+            logger.info("Reset: Pathfinder Lambda exists")
+        except Exception:
+            # Pathfinder doesn't exist — recreate it from the CDK-deployed code
+            # We can't easily recreate the full pathfinder code here, but we can create a placeholder
+            # that will be replaced on next CDK deploy. For now, create with hello-world.
+            logger.info("Reset: Pathfinder Lambda missing, recreating...")
+            lambda_tool_role_arn = os.environ.get("LAMBDA_TOOL_ROLE_ARN", "")
+            if lambda_tool_role_arn:
+                import io, zipfile
+                hello_code = 'import json\ndef lambda_handler(event, context):\n    return {"statusCode": 200, "body": json.dumps({"error": "Pathfinder needs redeployment. Run cdk deploy."})}\n'
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr("lambda_handler.py", hello_code)
+                buf.seek(0)
+                try:
+                    lambda_client.create_function(
+                        FunctionName="AgentCoreGatewayTool-Pathfinder",
+                        Runtime="python3.12",
+                        Role=lambda_tool_role_arn,
+                        Handler="lambda_handler.lambda_handler",
+                        Code={"ZipFile": buf.read()},
+                        Timeout=30,
+                        MemorySize=256,
+                    )
+                    logger.info("Reset: Recreated Pathfinder Lambda (placeholder)")
+                except Exception as e2:
+                    logger.warning("Reset: Failed to recreate Pathfinder Lambda: %s", e2)
 
         return {"success": True, "statusCode": 200, "message": "Configuration reset successfully"}
 

@@ -30,6 +30,7 @@ import {
   createLambdaTool,
   deleteLambdaTool,
   getCodeEditorStatus,
+  getPresignedDomainUrl,
   createMemory,
   deleteMemory,
   createGuardrail,
@@ -412,12 +413,15 @@ export default function AgentBuilderPage() {
   const handleEditLambdaTool = async (tool: LambdaToolConfig) => {
     try {
       const res = await getCodeEditorStatus();
-      const status = res.GetCodeEditorStatus.status;
-      if (status === 'InService') {
-        // Open the SageMaker Code Editor presigned URL in a new tab
-        window.open(`/ide?tool=${encodeURIComponent(tool.functionName)}`, '_blank');
-      } else {
+      if (res.GetCodeEditorStatus.status !== 'InService') {
         addFlash('warning', 'Start the IDE from the Configuration page first.');
+        return;
+      }
+      const urlRes = await getPresignedDomainUrl();
+      if (urlRes.GetPresignedDomainUrl.authorizedUrl) {
+        window.open(urlRes.GetPresignedDomainUrl.authorizedUrl, '_blank');
+      } else {
+        addFlash('error', urlRes.GetPresignedDomainUrl.error || 'Failed to get IDE URL');
       }
     } catch {
       addFlash('warning', 'Start the IDE from the Configuration page first.');

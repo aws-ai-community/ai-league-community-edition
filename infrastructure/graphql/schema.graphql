@@ -166,6 +166,11 @@ type SchemaModelConfigResponse @aws_cognito_user_pools {
   modelId: String!
 }
 
+type PresignedUrlResponse @aws_cognito_user_pools {
+  authorizedUrl: String!
+  error: String
+}
+
 type CreateModelResponse @aws_cognito_user_pools @aws_api_key {
   modelId: String!
   success: Boolean!
@@ -189,6 +194,7 @@ type Query {
   ListAgentVersions: [AgentVersion!]! @aws_cognito_user_pools
   GetCodeEditorStatus: CodeEditorStatusResponse @aws_cognito_user_pools
   GetSchemaModelConfig: SchemaModelConfigResponse @aws_cognito_user_pools
+  GetPresignedDomainUrl: PresignedUrlResponse @aws_cognito_user_pools
 }
 
 type Mutation {
