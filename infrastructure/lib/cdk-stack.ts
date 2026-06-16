@@ -627,7 +627,11 @@ def handler(event, context):
                 OwnershipSettings={'OwnerUserProfileName': user_profile},
                 SpaceSharingSettings={'SharingType': 'Private'},
                 SpaceSettings={'AppType': 'CodeEditor', 'CodeEditorAppSettings': {
-                    'DefaultResourceSpec': {'InstanceType': 'ml.t3.medium'}
+                    'DefaultResourceSpec': {
+                        'SageMakerImageArn': 'arn:aws:sagemaker:us-east-1:885854791233:image/sagemaker-distribution-cpu',
+                        'SageMakerImageVersionAlias': '4',
+                        'InstanceType': 'ml.t3.medium'
+                    }
                 }}
             )
             for _ in range(30):

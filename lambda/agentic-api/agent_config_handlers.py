@@ -1714,7 +1714,11 @@ def handle_start_code_editor(arguments: dict, event: dict) -> dict:
             SpaceName=space_name,
             AppType="CodeEditor",
             AppName="default",
-            ResourceSpec={"InstanceType": "ml.t3.medium"},
+            ResourceSpec={
+                "SageMakerImageArn": "arn:aws:sagemaker:us-east-1:885854791233:image/sagemaker-distribution-cpu",
+                "SageMakerImageVersionAlias": "4",
+                "InstanceType": "ml.t3.medium",
+            },
         )
         return {"status": "Pending", "message": "Code Editor starting"}
 
