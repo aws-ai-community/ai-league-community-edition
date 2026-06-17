@@ -157,6 +157,20 @@ type AgentCoreRuntimeResponse @aws_cognito_user_pools @aws_api_key {
   message: String
 }
 
+type CodeEditorStatusResponse @aws_cognito_user_pools {
+  status: String!
+  message: String
+}
+
+type SchemaModelConfigResponse @aws_cognito_user_pools {
+  modelId: String!
+}
+
+type PresignedUrlResponse @aws_cognito_user_pools {
+  authorizedUrl: String!
+  error: String
+}
+
 type CreateModelResponse @aws_cognito_user_pools @aws_api_key {
   modelId: String!
   success: Boolean!
@@ -178,6 +192,9 @@ type Query {
   ListGuardrail: [GuardrailTool!]! @aws_cognito_user_pools
   GetAgentCoreRuntime: AgentCoreRuntimeResponse @aws_cognito_user_pools
   ListAgentVersions: [AgentVersion!]! @aws_cognito_user_pools
+  GetCodeEditorStatus: CodeEditorStatusResponse @aws_cognito_user_pools
+  GetSchemaModelConfig: SchemaModelConfigResponse @aws_cognito_user_pools
+  GetPresignedDomainUrl: PresignedUrlResponse @aws_cognito_user_pools
 }
 
 type Mutation {
@@ -189,8 +206,12 @@ type Mutation {
   CreateSubAgent(name: String!, systemPrompt: String!, modelId: String!, lambdaTools: [String!]!): SubAgent @aws_cognito_user_pools
   UpdateSubAgent(agentId: String!, name: String!, systemPrompt: String!, modelId: String!, lambdaTools: [String!]!): SubAgent @aws_cognito_user_pools
   DeleteSubAgent(agentId: String!): MutationResponse @aws_cognito_user_pools
-  UpdateLambdaTool(name: String!, functionName: String!): LambdaTool @aws_cognito_user_pools
+  CreateLambdaTool(name: String!): LambdaTool @aws_cognito_user_pools
   DeleteLambdaTool(toolId: String!): MutationResponse @aws_cognito_user_pools
+  StartCodeEditor: CodeEditorStatusResponse @aws_cognito_user_pools
+  StopCodeEditor: CodeEditorStatusResponse @aws_cognito_user_pools
+  ResetConfiguration: MutationResponse @aws_cognito_user_pools
+  SaveSchemaModelConfig(modelId: String!): MutationResponse @aws_cognito_user_pools
   CreateMemory(name: String!, description: String): MemoryTool @aws_cognito_user_pools
   DeleteMemory(toolId: String!): MutationResponse @aws_cognito_user_pools
   CreateGuardrail(name: String!, description: String, blockedInputMessaging: String, blockedOutputsMessaging: String, contentPolicyConfig: String): GuardrailTool @aws_cognito_user_pools

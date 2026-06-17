@@ -723,6 +723,112 @@ export async function deleteGuardrail(toolId: string): Promise<{ DeleteGuardrail
   return graphqlRequest<{ DeleteGuardrail: MutationResponse }>(query, { toolId }, true);
 }
 
+// --- Phase 3: Lambda Tool Management, IDE Controls, Schema Config, Reset ---
+
+export interface CodeEditorStatusResponse {
+  status: string;
+  message: string | null;
+}
+
+export interface SchemaModelConfigResponse {
+  modelId: string;
+}
+
+export async function createLambdaTool(name: string): Promise<{ CreateLambdaTool: LambdaToolConfig }> {
+  const query = `
+    mutation CreateLambdaTool($name: String!) {
+      CreateLambdaTool(name: $name) {
+        toolId
+        userId
+        name
+        functionName
+        runtime
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ CreateLambdaTool: LambdaToolConfig }>(query, { name }, true);
+}
+
+export async function getCodeEditorStatus(): Promise<{ GetCodeEditorStatus: CodeEditorStatusResponse }> {
+  const query = `
+    query GetCodeEditorStatus {
+      GetCodeEditorStatus {
+        status
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ GetCodeEditorStatus: CodeEditorStatusResponse }>(query, undefined, true);
+}
+
+export async function startCodeEditor(): Promise<{ StartCodeEditor: CodeEditorStatusResponse }> {
+  const query = `
+    mutation StartCodeEditor {
+      StartCodeEditor {
+        status
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ StartCodeEditor: CodeEditorStatusResponse }>(query, undefined, true);
+}
+
+export async function stopCodeEditor(): Promise<{ StopCodeEditor: CodeEditorStatusResponse }> {
+  const query = `
+    mutation StopCodeEditor {
+      StopCodeEditor {
+        status
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ StopCodeEditor: CodeEditorStatusResponse }>(query, undefined, true);
+}
+
+export async function getSchemaModelConfig(): Promise<{ GetSchemaModelConfig: SchemaModelConfigResponse }> {
+  const query = `
+    query GetSchemaModelConfig {
+      GetSchemaModelConfig {
+        modelId
+      }
+    }
+  `;
+  return graphqlRequest<{ GetSchemaModelConfig: SchemaModelConfigResponse }>(query, undefined, true);
+}
+
+export async function saveSchemaModelConfig(modelId: string): Promise<{ SaveSchemaModelConfig: MutationResponse }> {
+  const query = `
+    mutation SaveSchemaModelConfig($modelId: String!) {
+      SaveSchemaModelConfig(modelId: $modelId) {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ SaveSchemaModelConfig: MutationResponse }>(query, { modelId }, true);
+}
+
+export async function resetConfiguration(): Promise<{ ResetConfiguration: MutationResponse }> {
+  const query = `
+    mutation ResetConfiguration {
+      ResetConfiguration {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ ResetConfiguration: MutationResponse }>(query, undefined, true);
+}
+
+export async function getPresignedDomainUrl(): Promise<{ GetPresignedDomainUrl: { authorizedUrl: string; error?: string } }> {
+  const query = `query { GetPresignedDomainUrl { authorizedUrl error } }`;
+  return graphqlRequest<{ GetPresignedDomainUrl: { authorizedUrl: string; error?: string } }>(query, undefined, true);
+}
+
 export async function createModel(config: { name: string; resourceIdentifier: string; type: string; pathfindingPromptStrategy?: string }): Promise<{ CreateModel: CreateModelResponse }> {
   const query = `
     mutation CreateModel($name: String!, $resourceIdentifier: String!, $type: String!, $pathfindingPromptStrategy: String) {

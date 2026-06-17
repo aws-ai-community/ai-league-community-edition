@@ -78,14 +78,15 @@ DEFAULT_PATHFINDER_SUBAGENT = {
     "agentId": DEFAULT_PATHFINDER_SUBAGENT_ID,
     "name": "Pathfinding Specialist",
     "systemPrompt": (
-        "You are a JSON echo service for pathfinding results.\n\n"
-        "1. Call the pathfind tool with:\n"
-        "   - game_map: Pass the map JSON string from the input exactly as-is\n"
-        "   - start_pos: Convert position label. A1=\"[0,0]\", B1=\"[0,1]\", A2=\"[1,0]\"\n"
-        "   - strategy: \"swift\" unless user says \"get_coins\"\n\n"
-        "2. After receiving the tool response, output the path field as a JSON array.\n"
-        "   Copy it character by character. Do NOT convert to text or add any words.\n"
-        "   Output example: [\"right\",\"down\",\"left\",\"right\"]"
+        "You are the Pathfinding Specialist.\n\n"
+        "CRITICAL RULES:\n"
+        "1. Call the pathfinding tool with:\n"
+        "   - game_map: The grid JSON array from the input (the 2D array of cells like [[\"normal\",\"wall\",...],...])\n"
+        "   - start_pos: Extract from the prompt text. \"A1\" means [0,0], \"B2\" means [1,1]. Format: column letter (A=col0, B=col1...) + row number (1=row0, 2=row1...). Pass as JSON string like \"[0,0]\"\n"
+        "   - strategy: Extract from user prompt (\"swift\" or \"get_coins\") or default to \"swift\"\n"
+        "2. Return ONLY the path array from the tool result\n"
+        "3. NO explanations, NO text, just the JSON array\n\n"
+        "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
     ),
     "modelId": "us.amazon.nova-2-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
@@ -198,7 +199,7 @@ def _seed_defaults_for_user(user_id: str) -> None:
                 "sk": "LAMBDA#pathfinder-default",
                 "toolId": "pathfinder-default",
                 "name": "Pathfinder",
-                "functionName": "ai-league-pathfinder-tool",
+                "functionName": "AgentCoreGatewayTool-Pathfinder",
                 "runtime": "python3.12",
                 "gsi1pk": f"USER#{user_id}",
                 "gsi1sk": f"LAMBDA#{now}",
@@ -649,7 +650,6 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
     """List all sub-agents for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "SUBAGENT#".
-    If no sub-agents found, checks if seeding is needed and seeds defaults.
     Returns a list of sub-agent summaries (agentId, name, modelId).
 
     Requirements: 4.4, 4.8
@@ -670,29 +670,6 @@ def handle_list_sub_agents(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
-
-    # If no sub-agents found, check if we need to seed defaults
-    if not items:
-        # Try direct get for the default sub-agent (consistent read)
-        try:
-            direct = agent_configurations_table.get_item(
-                Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
-                ConsistentRead=True,
-            )
-            if direct.get("Item"):
-                items = [direct["Item"]]
-            else:
-                # Seed defaults and re-read the stored item
-                _seed_defaults_for_user(user_id)
-                seeded = agent_configurations_table.get_item(
-                    Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"},
-                    ConsistentRead=True,
-                )
-                if seeded.get("Item"):
-                    items = [seeded["Item"]]
-        except Exception as e:
-            logger.warning(f"Failed to seed/read default sub-agent for {user_id}: {e}")
-
     return [
         {
             "agentId": item.get("agentId"),
@@ -752,51 +729,91 @@ def handle_get_sub_agent(arguments: dict, event: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def handle_update_lambda_tool(arguments: dict, event: dict) -> dict:
-    """Register or update a Lambda tool.
+def handle_create_lambda_tool(arguments: dict, event: dict) -> dict:
+    """Create a new Lambda tool with a hello-world handler.
 
-    If no existing tool with the same functionName exists for this user,
-    generates a new toolId (uuid4). Otherwise updates the existing record.
-    Stores with sk="LAMBDA#{toolId}", gsi1pk="USER#{userId}", gsi1sk="LAMBDA#{timestamp}".
+    1. Derives functionName = f"AgentCoreGatewayTool-{name}"
+    2. Creates Lambda function with Python 3.12 runtime, hello-world handler, shared LambdaToolRole
+    3. On Lambda creation failure: returns error immediately, no DynamoDB write
+    4. Generates toolId (uuid4), writes DynamoDB record
+    5. Returns LambdaTool response dict
 
-    Fields: toolId, userId, name, functionName, runtime, createdAt, updatedAt.
+    Schema generation is NOT triggered here — EventBridge triggers it automatically
+    when the user uploads real code (UpdateFunctionCode event).
 
-    Requirements: 5.1, 5.2
+    Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 13.3
     """
+    import io
+    import zipfile
+
     user_id = _get_user_id(event)
     now = _now_iso()
 
     name = arguments.get("name", "")
-    function_name = arguments.get("functionName", "")
-    runtime = arguments.get("runtime", "python3.12")
+    if not name:
+        return {"success": False, "statusCode": 400, "message": "name is required"}
 
-    if not function_name:
-        return {"success": False, "statusCode": 400, "message": "functionName is required"}
+    function_name = f"AgentCoreGatewayTool-{name}"
+    runtime = "python3.12"
 
-    # Check if a tool with this functionName already exists
-    tool_id = None
-    created_at = now
+    # Get the shared Lambda Tool Role ARN from environment
+    lambda_tool_role_arn = os.environ.get("LAMBDA_TOOL_ROLE_ARN", "")
+    if not lambda_tool_role_arn:
+        logger.error("LAMBDA_TOOL_ROLE_ARN environment variable not set")
+        return {"success": False, "statusCode": 500, "message": "Lambda tool role not configured"}
+
+    # Hello-world handler template
+    hello_code = '''import json
+
+def lambda_handler(event, context):
+    """
+    Hello World Lambda Tool
+
+    A starter template for your AI League Lambda tool.
+    Edit this code in the SageMaker Code Editor, then deploy.
+
+    Parameters (read from event body):
+      message: A greeting message to echo back
+
+    Returns:
+      JSON response with the greeting
+    """
+    if 'body' in event:
+        body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+    else:
+        body = event
+
+    message = body.get('message', 'Hello from AI League!')
+
+    result = {'response': message, 'status': 'ok'}
+    return {'statusCode': 200, 'body': json.dumps(result)}
+'''
+
+    # Create ZIP archive with the hello-world handler
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("lambda_handler.py", hello_code)
+    buf.seek(0)
+
+    # Create the Lambda function — fail fast on error
     try:
-        response = agent_configurations_table.query(
-            IndexName="GSI1",
-            KeyConditionExpression="gsi1pk = :pk AND begins_with(gsi1sk, :prefix)",
-            ExpressionAttributeValues={
-                ":pk": f"USER#{user_id}",
-                ":prefix": "LAMBDA#",
-            },
+        lambda_client = boto3.client("lambda")
+        lambda_client.create_function(
+            FunctionName=function_name,
+            Runtime=runtime,
+            Role=lambda_tool_role_arn,
+            Handler="lambda_handler.lambda_handler",
+            Code={"ZipFile": buf.read()},
+            Timeout=300,
+            MemorySize=128,
         )
-        for item in response.get("Items", []):
-            if item.get("functionName") == function_name:
-                tool_id = item.get("toolId")
-                created_at = item.get("createdAt", now)
-                break
+        logger.info("Created Lambda function: %s", function_name)
     except Exception as e:
-        logger.error(f"Error querying Lambda tools for user {user_id}: {e}")
-        # Proceed with creating a new tool
+        logger.error("Failed to create Lambda function %s: %s", function_name, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to create Lambda function: {e}"}
 
-    # Generate new toolId if not found
-    if not tool_id:
-        tool_id = str(uuid.uuid4())
+    # Generate toolId and write DynamoDB record
+    tool_id = str(uuid.uuid4())
 
     item = {
         "userId": user_id,
@@ -807,31 +824,450 @@ def handle_update_lambda_tool(arguments: dict, event: dict) -> dict:
         "runtime": runtime,
         "gsi1pk": f"USER#{user_id}",
         "gsi1sk": f"LAMBDA#{now}",
-        "createdAt": created_at,
+        "createdAt": now,
         "updatedAt": now,
     }
 
     try:
         agent_configurations_table.put_item(Item=item)
     except Exception as e:
-        logger.error(f"Error registering Lambda tool for user {user_id}: {e}")
+        logger.error("DynamoDB put_item failed for CreateLambdaTool: %s", e)
+        # Best-effort cleanup of the Lambda function we just created
+        try:
+            lambda_client.delete_function(FunctionName=function_name)
+        except Exception:
+            logger.warning("Failed to clean up Lambda function %s after DynamoDB error", function_name)
         return {"success": False, "statusCode": 500, "message": f"Failed to register Lambda tool: {e}"}
 
+    # Skip schema generation on initial creation — the Lambda has hello-world template code.
+    # EventBridge will trigger schema regeneration when the user uploads real code.
+
     return {
-        "success": True,
-        "statusCode": 200,
         "toolId": tool_id,
+        "userId": user_id,
         "name": name,
         "functionName": function_name,
+        "runtime": runtime,
+        "createdAt": now,
+        "updatedAt": now,
     }
 
 
+def _try_parse_docstring_schema(source_code: str) -> list:
+    """Parse structured docstrings to extract MCP tool schemas without using an LLM.
+
+    Looks for patterns like:
+        Tool: route
+        Description: Route calculator for known maps.
+        Parameters:
+            mode             (required) - routing mode: max_score, time_budget, sprint, swift
+            duration         (optional) - time limit in seconds (default: 230)
+
+    Returns a list of schema dicts, or empty list if no structured docstring found.
+    """
+    import re as _re
+
+    # Find the lambda_handler docstring
+    docstring_match = _re.search(
+        r'def lambda_handler\s*\([^)]*\):\s*(?:#[^\n]*)?\s*"""(.*?)"""',
+        source_code, _re.DOTALL
+    )
+    if not docstring_match:
+        # Try alternate: triple single quotes
+        docstring_match = _re.search(
+            r"def lambda_handler\s*\([^)]*\):\s*(?:#[^\n]*)?\s*'''(.*?)'''",
+            source_code, _re.DOTALL
+        )
+    if not docstring_match:
+        return []
+
+    docstring = docstring_match.group(1)
+
+    # Look for "Tool:" sections
+    tool_sections = _re.split(r'---+\s*\n\s*Tool:\s*', docstring)
+    if len(tool_sections) < 2:
+        # No "Tool:" headers found — not a structured docstring
+        return []
+
+    schemas = []
+    for section in tool_sections[1:]:  # Skip the preamble before first "---"
+        lines = section.strip().split('\n')
+        tool_name = lines[0].strip()
+
+        # Extract description
+        desc_match = _re.search(r'Description:\s*(.+)', section)
+        description = desc_match.group(1).strip() if desc_match else f"Tool: {tool_name}"
+
+        # Extract parameters
+        params_match = _re.search(r'Parameters:\s*\n((?:\s+\S.*\n?)*)', section)
+        properties = {}
+        required = []
+
+        if params_match:
+            param_lines = params_match.group(1).split('\n')
+            for line in param_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Pattern: param_name  (required|optional) - description (default: value)
+                param_match = _re.match(
+                    r'(\w+)\s+\((required|optional)\)\s*-\s*(.+)', line
+                )
+                if param_match:
+                    param_name = param_match.group(1)
+                    is_required = param_match.group(2) == 'required'
+                    param_desc = param_match.group(3).strip()
+
+                    # Determine type from description hints
+                    param_type = "string"
+                    if any(hint in param_desc.lower() for hint in ['seconds', 'time limit', 'number of']):
+                        param_type = "number"
+
+                    properties[param_name] = {
+                        "type": param_type,
+                        "description": param_desc,
+                    }
+
+                    if is_required:
+                        required.append(param_name)
+
+        if not properties:
+            continue
+
+        schema = {
+            "name": tool_name,
+            "description": description,
+            "inputSchema": {
+                "type": "object",
+                "properties": properties,
+            },
+        }
+        if required:
+            schema["inputSchema"]["required"] = required
+
+        schemas.append(schema)
+
+    return schemas
+
+
+def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None:
+    """Auto-generate MCP tool schema from Lambda code using Bedrock and update the Gateway target.
+
+    1. Fetches the Lambda function code via lambda:GetFunction + download ZIP
+    2. Extracts .py files, truncates combined source to 8000 characters
+    3. Loads persisted Schema_Generation_Model from DynamoDB (SCHEMA_MODEL_CONFIG SK)
+       - If not set, defaults to 'us.amazon.nova-2-lite-v1:0'
+    4. Calls Bedrock Converse with configured model and schema generation prompt
+    5. Parses JSON response into Tool_Schema (MCP-compatible: name, description, inputSchema)
+    6. Finds or creates Gateway target with the schema
+    On invalid response: logs warning, skips update (does not crash)
+
+    Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 8.3, 14.1, 14.2, 14.3, 14.4
+    """
+    import io
+    import re as _re
+    import traceback
+    import urllib.request
+    import zipfile
+
+    try:
+        # Extract gateway ID from GATEWAY_URL environment variable
+        gateway_url = os.environ.get("GATEWAY_URL", "")
+        gw_match = _re.search(r'https://([^.]+)\.gateway', gateway_url)
+        if not gw_match:
+            logger.warning("Cannot extract gateway ID from GATEWAY_URL: %s", gateway_url)
+            return
+        gw_id = gw_match.group(1)
+
+        # 1. Get Lambda source code
+        lambda_client = boto3.client("lambda")
+        fn_info = lambda_client.get_function(FunctionName=function_name)
+        code_url = fn_info["Code"]["Location"]
+
+        with urllib.request.urlopen(code_url) as resp:
+            zip_bytes = resp.read()
+
+        source_code = ""
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for name in zf.namelist():
+                if name.endswith(".py"):
+                    source_code += f"\n# --- {name} ---\n"
+                    source_code += zf.read(name).decode("utf-8", errors="replace")
+
+        if not source_code:
+            logger.warning("No Python source found in Lambda %s", function_name)
+            return
+
+        # Truncate to avoid token limits (keep first 8000 chars)
+        source_code_truncated = source_code[:8000]
+
+        # --- DOCSTRING-FIRST APPROACH ---
+        # If the Lambda has a structured docstring with "Tool:" sections, parse directly
+        # without using the LLM. Only fall back to LLM if no structured docstring found.
+        valid_schemas = _try_parse_docstring_schema(source_code)
+        if valid_schemas:
+            logger.info("Parsed %d schema(s) from docstring for %s: %s",
+                        len(valid_schemas), function_name, json.dumps([s["name"] for s in valid_schemas]))
+        else:
+            # --- LLM FALLBACK ---
+            # No structured docstring found, use LLM to generate schema
+            source_code = source_code_truncated
+
+            # 2. Load persisted schema generation model from DynamoDB
+            model_id = "us.amazon.nova-2-lite-v1:0"
+            if user_id:
+                try:
+                    model_config_resp = agent_configurations_table.get_item(
+                        Key={"userId": user_id, "sk": "SCHEMA_MODEL_CONFIG"}
+                    )
+                    model_config_item = model_config_resp.get("Item")
+                    if model_config_item and model_config_item.get("modelId"):
+                        model_id = model_config_item["modelId"]
+                except Exception as e:
+                    logger.warning("Failed to load schema model config for user %s: %s", user_id, e)
+
+            # 3. Generate schema using Bedrock Converse
+            bedrock = boto3.client("bedrock-runtime")
+            prompt = f"""Analyze this Python Lambda function and generate MCP tool schema(s) as a JSON array.
+
+PRIORITY: If the function has a structured docstring with "Tool:" headers and "Parameters:" sections,
+you MUST use those EXACTLY as the source of truth for tool names, descriptions, and parameter names.
+Copy the tool name, description, and parameter names verbatim from the docstring.
+
+If there is NO structured docstring, fall back to analyzing the code to determine parameters.
+
+Output a JSON array of tool objects. Each tool object has this structure:
+{{
+  "name": "<tool_name_from_docstring_or_short_verb>",
+  "description": "<description_from_docstring_or_one_line_summary>",
+  "inputSchema": {{
+    "type": "object",
+    "properties": {{
+      "<param_name>": {{"type": "<json_type>", "description": "<description_from_docstring_or_code>"}}
+    }},
+    "required": ["<params_marked_required_in_docstring_or_no_default_in_code>"]
+  }}
+}}
+
+Rules:
+- If the docstring defines multiple tools (e.g. "Tool: route" and "Tool: route_map"), output one schema per tool
+- Use EXACT parameter names from the docstring (e.g. if docstring says "ctx" use "ctx", not "context" or "game_map")
+- Use EXACT tool names from the docstring (e.g. if docstring says "Tool: route" use "route")
+- Copy descriptions from the docstring Parameters section
+- For parameters marked "(required)" in the docstring, include them in "required" array
+- For parameters marked "(optional)" with defaults noted, do NOT include in "required"
+- All property types should be "string" unless clearly numeric from context (e.g. "time limit in seconds" → "number")
+- Do NOT invent parameters not in the docstring or code
+- Do NOT include framework params like 'body', 'event', 'context'
+- Output ONLY the JSON array, no markdown, no explanation, no code fences
+- If only one tool, still output as a single-element array: [{{...}}]
+
+Lambda source code:
+```python
+{source_code}
+```"""
+
+            converse_resp = bedrock.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
+            )
+
+            response_text = ""
+            for block in converse_resp.get("output", {}).get("message", {}).get("content", []):
+                if "text" in block:
+                    response_text += block["text"]
+
+            logger.info("Raw LLM response for %s (first 1000 chars): %s", function_name, response_text[:1000])
+
+            # Strip markdown code fences if present
+            response_text = _re.sub(r'```(?:json)?\s*', '', response_text).strip()
+            response_text = _re.sub(r'```\s*$', '', response_text).strip()
+
+            # 4. Parse the JSON response (now expecting an array)
+            # Try array first, then single object for backward compat
+            json_match = _re.search(r'\[[\s\S]*\]', response_text)
+            if not json_match:
+                # Fallback: try single object
+                json_match = _re.search(r'\{[\s\S]*\}', response_text)
+                if not json_match:
+                    logger.warning("No JSON found in Bedrock schema response for %s", function_name)
+                    return
+                try:
+                    single_schema = json.loads(json_match.group())
+                    schemas = [single_schema]
+                except json.JSONDecodeError as e:
+                    logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
+                    return
+            else:
+                try:
+                    schemas = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    # Array parse failed, try single object
+                    json_match = _re.search(r'\{[\s\S]*\}', response_text)
+                    if not json_match:
+                        logger.warning("No valid JSON in Bedrock schema response for %s", function_name)
+                        return
+                    try:
+                        single_schema = json.loads(json_match.group())
+                        schemas = [single_schema]
+                    except json.JSONDecodeError as e:
+                        logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
+                        return
+
+            if not isinstance(schemas, list):
+                schemas = [schemas]
+
+            # Validate each schema has required fields
+            valid_schemas = []
+            for schema in schemas:
+                if not isinstance(schema, dict):
+                    continue
+                if not schema.get("name") or not schema.get("description") or not schema.get("inputSchema"):
+                    logger.warning("Schema missing required fields (name/description/inputSchema) for %s: %s", function_name, schema.get("name", "?"))
+                    continue
+                valid_schemas.append(schema)
+
+            if not valid_schemas:
+                logger.warning("No valid schemas generated for %s", function_name)
+                return
+
+            logger.info("Generated %d schema(s) for %s: %s", len(valid_schemas), function_name,
+                        json.dumps([s["name"] for s in valid_schemas]))
+            for schema in valid_schemas:
+                logger.info("Schema %s: %s", schema["name"], json.dumps(schema)[:500])
+
+        # Sanitize schemas — remove fields not supported by Gateway API
+        # Gateway only allows: type, properties, required, items, description in property defs
+        ALLOWED_PROP_FIELDS = {"type", "properties", "required", "items", "description"}
+
+        def _sanitize_props(props):
+            if not isinstance(props, dict):
+                return props
+            sanitized = {}
+            for key, val in props.items():
+                if isinstance(val, dict):
+                    sanitized[key] = {k: v for k, v in val.items() if k in ALLOWED_PROP_FIELDS}
+                    # Recurse into nested properties
+                    if "properties" in sanitized[key]:
+                        sanitized[key]["properties"] = _sanitize_props(sanitized[key]["properties"])
+                else:
+                    sanitized[key] = val
+            return sanitized
+
+        for schema in valid_schemas:
+            if "inputSchema" in schema and "properties" in schema["inputSchema"]:
+                schema["inputSchema"]["properties"] = _sanitize_props(schema["inputSchema"]["properties"])
+
+        # 5. Find and update/create the Gateway target
+        agentcore_ctrl = boto3.client("bedrock-agentcore-control")
+        targets = agentcore_ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+        target_id = None
+        target_lambda_arn = None
+
+        for t in targets.get("items", []):
+            try:
+                detail = agentcore_ctrl.get_gateway_target(
+                    gatewayIdentifier=gw_id, targetId=t["targetId"]
+                )
+                tc = detail.get("targetConfiguration", {})
+                mcp = tc.get("mcp", {})
+                lam = mcp.get("lambda", {})
+                if t.get("name") == function_name:
+                    target_id = t["targetId"]
+                    target_lambda_arn = lam["lambdaArn"]
+                    break
+            except Exception:
+                continue
+
+        if not target_id:
+            # No existing target — create a new one
+            logger.info("Creating new Gateway target for Lambda %s", function_name)
+            try:
+                fn_config = lambda_client.get_function_configuration(FunctionName=function_name)
+                lambda_arn = fn_config["FunctionArn"]
+
+                # Retry up to 3 times with backoff for "Lambda not ready" race condition
+                import time as _time
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        agentcore_ctrl.create_gateway_target(
+                            gatewayIdentifier=gw_id,
+                            name=function_name,
+                            description=f"Lambda tool: {function_name}",
+                            targetConfiguration={
+                                "mcp": {
+                                    "lambda": {
+                                        "lambdaArn": lambda_arn,
+                                        "toolSchema": {
+                                            "inlinePayload": valid_schemas,
+                                        },
+                                    },
+                                },
+                            },
+                            credentialProviderConfigurations=[
+                                {"credentialProviderType": "GATEWAY_IAM_ROLE"}
+                            ],
+                        )
+                        logger.info("Created new Gateway target for %s", function_name)
+                        last_err = None
+                        break
+                    except Exception as create_err:
+                        last_err = create_err
+                        err_msg = str(create_err)
+                        if "not ready" in err_msg or "resource conflict" in err_msg.lower():
+                            logger.info("Lambda not ready, retrying in %ds (attempt %d/3)", (attempt + 1) * 2, attempt + 1)
+                            _time.sleep((attempt + 1) * 2)
+                        else:
+                            break
+                if last_err:
+                    logger.error("Failed to create Gateway target for %s: %s", function_name, traceback.format_exc())
+            except Exception:
+                logger.error("Failed to create Gateway target for %s: %s", function_name, traceback.format_exc())
+            return
+
+        # Update existing target with new schema
+        agentcore_ctrl.update_gateway_target(
+            gatewayIdentifier=gw_id,
+            targetId=target_id,
+            name=function_name,
+            targetConfiguration={
+                "mcp": {
+                    "lambda": {
+                        "lambdaArn": target_lambda_arn,
+                        "toolSchema": {
+                            "inlinePayload": valid_schemas,
+                        },
+                    },
+                },
+            },
+            credentialProviderConfigurations=[
+                {"credentialProviderType": "GATEWAY_IAM_ROLE"}
+            ],
+        )
+        logger.info("Updated Gateway target %s schema for %s", target_id, function_name)
+
+    except Exception:
+        import traceback as _tb
+        logger.error(
+            "Failed to auto-update Gateway schema for %s: %s",
+            function_name,
+            _tb.format_exc(),
+        )
+
+
 def handle_delete_lambda_tool(arguments: dict, event: dict) -> dict:
-    """Delete a Lambda tool by toolId.
+    """Delete a Lambda tool with full cascade: Lambda function, Gateway target, DynamoDB record.
 
-    Removes the item from the AgentConfigurations table by (userId, sk="LAMBDA#{toolId}").
+    1. Look up DynamoDB record by (userId, sk=LAMBDA#{toolId}) to get functionName
+    2. If not found: return 404
+    3. Delete AWS Lambda function (ResourceNotFoundException is OK, other errors → return error, preserve record)
+    4. Find and delete Gateway target matching the Lambda function ARN (best effort)
+    5. Delete DynamoDB record
+    6. Return success
 
-    Requirements: 5.3
+    Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 4.1, 4.2, 4.3, 4.4, 13.3
     """
     user_id = _get_user_id(event)
     tool_id = arguments.get("toolId")
@@ -839,13 +1275,91 @@ def handle_delete_lambda_tool(arguments: dict, event: dict) -> dict:
     if not tool_id:
         return {"success": False, "statusCode": 400, "message": "toolId is required"}
 
+    # Step 1: Look up DynamoDB record to get functionName
+    try:
+        response = agent_configurations_table.get_item(
+            Key={"userId": user_id, "sk": f"LAMBDA#{tool_id}"}
+        )
+    except Exception as e:
+        logger.error("Error looking up Lambda tool %s for user %s: %s", tool_id, user_id, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to look up Lambda tool: {e}"}
+
+    item = response.get("Item")
+    if not item:
+        return {"success": False, "statusCode": 404, "message": f"Lambda tool {tool_id} not found"}
+
+    function_name = item.get("functionName", "")
+
+    # Step 2: Delete the AWS Lambda function
+    if function_name:
+        try:
+            lambda_client = boto3.client("lambda")
+            lambda_client.delete_function(FunctionName=function_name)
+            logger.info("Deleted Lambda function: %s", function_name)
+        except Exception as e:
+            error_code = ""
+            if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
+                error_code = e.response["Error"].get("Code", "")
+            if error_code == "ResourceNotFoundException":
+                # Function already deleted — that's fine, proceed
+                logger.info("Lambda function %s already deleted (ResourceNotFoundException)", function_name)
+            else:
+                # Any other error → preserve DynamoDB record and return error
+                logger.error("Failed to delete Lambda function %s: [%s] %s", function_name, error_code, e)
+                return {
+                    "success": False,
+                    "statusCode": 500,
+                    "message": f"Failed to delete Lambda function: {e}",
+                }
+
+    # Step 3: Find and delete Gateway target (best effort)
+    if function_name:
+        try:
+            gateway_url = os.environ.get("GATEWAY_URL", "")
+            if gateway_url:
+                # Extract gateway ID from URL: https://{gateway_id}.gateway.bedrock-agentcore.{region}.amazonaws.com/mcp
+                gw_id = gateway_url.split("//")[1].split(".")[0] if "//" in gateway_url else ""
+                if gw_id:
+                    agentcore_ctrl = boto3.client("bedrock-agentcore-control")
+                    # List targets and find the one matching our function
+                    targets_response = agentcore_ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+                    target_id_to_delete = None
+                    for target in targets_response.get("items", []):
+                        try:
+                            detail = agentcore_ctrl.get_gateway_target(
+                                gatewayIdentifier=gw_id, targetId=target["targetId"]
+                            )
+                            # Check if target's Lambda ARN matches our function name
+                            target_config = detail.get("targetConfiguration", {})
+                            mcp_config = target_config.get("mcp", {})
+                            lambda_config = mcp_config.get("lambda", mcp_config.get("Lambda", {}))
+                            lambda_arn = lambda_config.get("lambdaArn", lambda_config.get("LambdaArn", ""))
+                            if target.get("name") == function_name:
+                                target_id_to_delete = target["targetId"]
+                                break
+                        except Exception as detail_err:
+                            logger.warning("Error getting target detail: %s", detail_err)
+                            continue
+
+                    if target_id_to_delete:
+                        agentcore_ctrl.delete_gateway_target(
+                            gatewayIdentifier=gw_id, targetId=target_id_to_delete
+                        )
+                        logger.info("Deleted Gateway target %s for %s", target_id_to_delete, function_name)
+                    else:
+                        logger.info("No Gateway target found for %s", function_name)
+        except Exception as gw_err:
+            # Best effort — log warning but continue with DynamoDB deletion
+            logger.warning("Failed to delete Gateway target for %s: %s", function_name, gw_err)
+
+    # Step 4: Delete DynamoDB record
     try:
         agent_configurations_table.delete_item(
             Key={"userId": user_id, "sk": f"LAMBDA#{tool_id}"}
         )
     except Exception as e:
-        logger.error(f"Error deleting Lambda tool {tool_id} for user {user_id}: {e}")
-        return {"success": False, "statusCode": 500, "message": f"Failed to delete Lambda tool: {e}"}
+        logger.error("Error deleting Lambda tool record %s for user %s: %s", tool_id, user_id, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to delete Lambda tool record: {e}"}
 
     return {"success": True, "statusCode": 200, "message": "Lambda tool deleted successfully"}
 
@@ -854,7 +1368,8 @@ def handle_list_lambda_tool(arguments: dict, event: dict) -> list:
     """List all Lambda tools for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "LAMBDA#".
-    If no tools exist, seeds the default Pathfinder tool so it shows up.
+    Returns whatever tools exist (does NOT auto-seed; seeding only happens on
+    first access via handle_get_supervisor_agent → _seed_defaults_for_user).
 
     Requirements: 5.2
     """
@@ -874,38 +1389,6 @@ def handle_list_lambda_tool(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
-
-    # If no Lambda tools exist, seed the default Pathfinder tool
-    if not items:
-        now = _now_iso()
-        default_tool = {
-            "userId": user_id,
-            "sk": "LAMBDA#pathfinder-default",
-            "toolId": "pathfinder-default",
-            "name": "Pathfinder",
-            "functionName": "ai-league-pathfinder-tool",
-            "runtime": "python3.12",
-            "gsi1pk": f"USER#{user_id}",
-            "gsi1sk": f"LAMBDA#{now}",
-            "createdAt": now,
-            "updatedAt": now,
-        }
-        try:
-            agent_configurations_table.put_item(
-                Item=default_tool,
-                ConditionExpression="attribute_not_exists(sk)",
-            )
-            items = [default_tool]
-        except Exception:
-            # Already exists or write failed — try reading directly
-            try:
-                direct = agent_configurations_table.get_item(
-                    Key={"userId": user_id, "sk": "LAMBDA#pathfinder-default"}
-                )
-                if direct.get("Item"):
-                    items = [direct["Item"]]
-            except Exception:
-                pass
 
     return [
         {
@@ -1320,3 +1803,517 @@ def handle_list_guardrail(arguments: dict, event: dict) -> list:
         }
         for item in items
     ]
+
+
+# ---------------------------------------------------------------------------
+# SageMaker IDE Management Handlers
+# Requirements: 8.1, 8.2, 9.1, 9.2, 9.3, 9.4, 10.1, 10.2, 10.3, 11.1, 11.2, 11.3
+# ---------------------------------------------------------------------------
+
+
+def handle_start_code_editor(arguments: dict, event: dict) -> dict:
+    """Start the SageMaker Code Editor app in the configured space.
+
+    Checks current app status first:
+    - InService or Pending: returns current status (already running/starting)
+    - Deleting: returns message to try again later
+    - Otherwise: calls create_app to start the IDE
+
+    Requirements: 9.1, 9.2, 10.1, 10.2
+    """
+    domain_id = os.environ.get("SAGEMAKER_DOMAIN_ID", "")
+    space_name = os.environ.get("SAGEMAKER_SPACE_NAME", "")
+
+    if not domain_id or not space_name:
+        return {"status": "Error", "message": "SageMaker domain or space not configured"}
+
+    try:
+        sm = boto3.client("sagemaker")
+
+        # Check current status first
+        try:
+            app_resp = sm.describe_app(
+                DomainId=domain_id,
+                SpaceName=space_name,
+                AppType="CodeEditor",
+                AppName="default",
+            )
+            status = app_resp.get("Status", "")
+            if status in ("InService", "Pending"):
+                return {"status": status, "message": f"Code Editor is {status}"}
+            if status == "Deleting":
+                return {"status": "Deleting", "message": "Code Editor is stopping, please try again later"}
+            # Any other status (Failed, Deleted, etc.) — proceed to create
+        except Exception as e:
+            # Any exception from describe_app means we should try to create
+            # ResourceNotFound, ValidationException, or unexpected errors all handled here
+            error_code = ""
+            if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
+                error_code = e.response["Error"].get("Code", "")
+            logger.info("describe_app returned error [%s]: %s — proceeding to create_app", error_code, e)
+
+        # Create the app
+        sm.create_app(
+            DomainId=domain_id,
+            SpaceName=space_name,
+            AppType="CodeEditor",
+            AppName="default",
+            ResourceSpec={
+                "SageMakerImageArn": "arn:aws:sagemaker:us-east-1:885854791233:image/sagemaker-distribution-cpu",
+                "SageMakerImageVersionAlias": "4",
+                "InstanceType": "ml.t3.medium",
+            },
+        )
+        return {"status": "Pending", "message": "Code Editor starting"}
+
+    except Exception as e:
+        logger.error("Failed to start Code Editor: %s", e)
+        return {"status": "Error", "message": f"Failed to start Code Editor: {e}"}
+
+
+def handle_stop_code_editor(arguments: dict, event: dict) -> dict:
+    """Stop the SageMaker Code Editor app to save costs.
+
+    Calls delete_app which terminates the running instance.
+
+    Requirements: 9.3, 9.4, 10.3
+    """
+    domain_id = os.environ.get("SAGEMAKER_DOMAIN_ID", "")
+    space_name = os.environ.get("SAGEMAKER_SPACE_NAME", "")
+
+    if not domain_id or not space_name:
+        return {"status": "Error", "message": "SageMaker domain or space not configured"}
+
+    try:
+        sm = boto3.client("sagemaker")
+        sm.delete_app(
+            DomainId=domain_id,
+            SpaceName=space_name,
+            AppType="CodeEditor",
+            AppName="default",
+        )
+        return {"status": "Deleting", "message": "Code Editor stopping"}
+
+    except Exception as e:
+        error_code = ""
+        if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
+            error_code = e.response["Error"].get("Code", "")
+        if error_code == "ResourceNotFound":
+            return {"status": "Stopped", "message": "Code Editor is already stopped"}
+        logger.error("Failed to stop Code Editor: [%s] %s", error_code, e)
+        return {"status": "Error", "message": f"Failed to stop Code Editor: {e}"}
+
+
+def handle_get_code_editor_status(arguments: dict, event: dict) -> dict:
+    """Get the current status of the SageMaker Code Editor app.
+
+    Maps describe_app response to one of: InService, Pending, Deleting, Stopped.
+    ResourceNotFoundException maps to Stopped.
+
+    Requirements: 11.1, 11.2, 11.3
+    """
+    domain_id = os.environ.get("SAGEMAKER_DOMAIN_ID", "")
+    space_name = os.environ.get("SAGEMAKER_SPACE_NAME", "")
+
+    if not domain_id or not space_name:
+        return {"status": "Stopped", "message": "SageMaker domain or space not configured"}
+
+    try:
+        sm = boto3.client("sagemaker")
+        app_resp = sm.describe_app(
+            DomainId=domain_id,
+            SpaceName=space_name,
+            AppType="CodeEditor",
+            AppName="default",
+        )
+        status = app_resp.get("Status", "")
+        # Map SageMaker statuses to our simplified set
+        status = _map_ide_status(status)
+        return {"status": status, "message": ""}
+
+    except Exception as e:
+        error_code = ""
+        if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
+            error_code = e.response["Error"].get("Code", "")
+        if error_code in ("ResourceNotFound", "ValidationException"):
+            return {"status": "Stopped", "message": ""}
+        logger.error("Failed to get Code Editor status: [%s] %s", error_code, e)
+        return {"status": "Stopped", "message": f"Unable to determine status: {e}"}
+
+
+def _map_ide_status(raw_status: str) -> str:
+    """Map SageMaker app status to simplified IDE status.
+
+    Returns exactly one of: InService, Pending, Deleting, Stopped.
+    Any unrecognized status maps to Stopped.
+
+    Requirements: 11.1, 11.2
+    """
+    if raw_status == "InService":
+        return "InService"
+    elif raw_status in ("Pending", "Creating"):
+        return "Pending"
+    elif raw_status in ("Deleting", "Stopping"):
+        return "Deleting"
+    else:
+        # Deleted, Failed, Unknown, or any other status → Stopped
+        return "Stopped"
+
+
+def handle_get_presigned_domain_url(arguments: dict, event: dict) -> dict:
+    """Generate a presigned URL for the SageMaker domain IDE.
+
+    Uses create_presigned_domain_url to get a short-lived authenticated URL
+    that opens the Code Editor space directly in the browser.
+    """
+    domain_id = os.environ.get("SAGEMAKER_DOMAIN_ID", "")
+    user_profile_name = os.environ.get("SAGEMAKER_USER_PROFILE", "")
+    space_name = os.environ.get("SAGEMAKER_SPACE_NAME", "ai-league-codeeditor")
+
+    if not domain_id or not user_profile_name:
+        return {"authorizedUrl": "", "error": "SageMaker not configured"}
+
+    try:
+        sm = boto3.client("sagemaker")
+        resp = sm.create_presigned_domain_url(
+            DomainId=domain_id,
+            UserProfileName=user_profile_name,
+            SpaceName=space_name,
+            ExpiresInSeconds=300,
+            SessionExpirationDurationInSeconds=43200,
+        )
+        return {"authorizedUrl": resp.get("AuthorizedUrl", "")}
+    except Exception as e:
+        logger.error("Failed to generate presigned URL: %s", e)
+        return {"authorizedUrl": "", "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Schema Model Configuration Persistence
+# Requirements: 8.1, 8.2
+# ---------------------------------------------------------------------------
+
+
+def handle_save_schema_model_config(arguments: dict, event: dict) -> dict:
+    """Persist the user's chosen schema generation model to DynamoDB.
+
+    Writes to AgentConfigurations table with sk="SCHEMA_MODEL_CONFIG".
+    The modelId is used by _auto_update_gateway_schema when generating tool schemas.
+
+    Requirements: 8.1
+    """
+    user_id = _get_user_id(event)
+    now = _now_iso()
+
+    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
+
+    item = {
+        "userId": user_id,
+        "sk": "SCHEMA_MODEL_CONFIG",
+        "modelId": model_id,
+        "updatedAt": now,
+    }
+
+    try:
+        agent_configurations_table.put_item(Item=item)
+    except Exception as e:
+        logger.error("Error saving schema model config for user %s: %s", user_id, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to save schema model config: {e}"}
+
+    return {"success": True, "statusCode": 200, "modelId": model_id, "message": "Schema model config saved"}
+
+
+def handle_get_schema_model_config(arguments: dict, event: dict) -> dict:
+    """Retrieve the user's chosen schema generation model from DynamoDB.
+
+    Returns the persisted modelId, or the default (us.amazon.nova-2-lite-v1:0) if not set.
+
+    Requirements: 8.2
+    """
+    user_id = _get_user_id(event)
+
+    try:
+        response = agent_configurations_table.get_item(
+            Key={"userId": user_id, "sk": "SCHEMA_MODEL_CONFIG"}
+        )
+    except Exception as e:
+        logger.error("Error loading schema model config for user %s: %s", user_id, e)
+        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
+
+    item = response.get("Item")
+    if not item:
+        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
+
+    return {"modelId": item.get("modelId", "us.amazon.nova-2-lite-v1:0")}
+
+
+# ---------------------------------------------------------------------------
+# Reset Configuration Handler
+# Requirements: 15.3, 15.4, 15.5
+# ---------------------------------------------------------------------------
+
+
+def handle_reset_configuration(arguments: dict, event: dict) -> dict:
+    """Reset the user's agent configuration to defaults.
+
+    1. Get userId
+    2. Query all SUBAGENT# records for user, delete all except pathfinder-specialist-default
+    3. Query all LAMBDA# records for user, for each non-pathfinder tool:
+       delete AWS Lambda function, delete Gateway target, delete DynamoDB record
+    4. Re-seed defaults via _seed_defaults_for_user(user_id)
+    5. Return success
+
+    Requirements: 15.3, 15.4, 15.5
+    """
+    user_id = _get_user_id(event)
+
+    try:
+        # Step 1: Delete all sub-agents except the default pathfinder
+        sub_agents = agent_configurations_table.query(
+            IndexName="GSI1",
+            KeyConditionExpression="gsi1pk = :pk AND begins_with(gsi1sk, :prefix)",
+            ExpressionAttributeValues={
+                ":pk": f"USER#{user_id}",
+                ":prefix": "SUBAGENT#",
+            },
+        ).get("Items", [])
+
+        for item in sub_agents:
+            agent_id = item.get("agentId", "")
+            if agent_id != DEFAULT_PATHFINDER_SUBAGENT_ID:
+                try:
+                    agent_configurations_table.delete_item(
+                        Key={"userId": user_id, "sk": f"SUBAGENT#{agent_id}"}
+                    )
+                except Exception as e:
+                    logger.warning("Failed to delete sub-agent %s during reset: %s", agent_id, e)
+
+        # Step 2: Delete all Lambda tools except pathfinder-default
+        lambda_tools = agent_configurations_table.query(
+            IndexName="GSI1",
+            KeyConditionExpression="gsi1pk = :pk AND begins_with(gsi1sk, :prefix)",
+            ExpressionAttributeValues={
+                ":pk": f"USER#{user_id}",
+                ":prefix": "LAMBDA#",
+            },
+        ).get("Items", [])
+
+        lambda_client = boto3.client("lambda")
+        gateway_url = os.environ.get("GATEWAY_URL", "")
+        gw_id = ""
+        if gateway_url and "//" in gateway_url:
+            gw_id = gateway_url.split("//")[1].split(".")[0]
+
+        for item in lambda_tools:
+            tool_id = item.get("toolId", "")
+            if tool_id == "pathfinder-default":
+                continue
+
+            function_name = item.get("functionName", "")
+
+            # Delete Lambda function (best effort)
+            if function_name:
+                try:
+                    lambda_client.delete_function(FunctionName=function_name)
+                    logger.info("Reset: Deleted Lambda function %s", function_name)
+                except Exception as e:
+                    error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+                    if error_code != "ResourceNotFoundException":
+                        logger.warning("Reset: Failed to delete Lambda %s: %s", function_name, e)
+
+                # Delete Gateway target (best effort)
+                if gw_id:
+                    try:
+                        agentcore_ctrl = boto3.client("bedrock-agentcore-control")
+                        targets_resp = agentcore_ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+                        for gw_target in targets_resp.get("items", []):
+                            if gw_target.get("name") == function_name:
+                                try:
+                                    agentcore_ctrl.delete_gateway_target(
+                                        gatewayIdentifier=gw_id, targetId=gw_target["targetId"]
+                                    )
+                                    logger.info("Reset: Deleted Gateway target for %s", function_name)
+                                except Exception as del_err:
+                                    logger.warning("Reset: Failed to delete Gateway target %s: %s", gw_target["targetId"], del_err)
+                                break
+                    except Exception as gw_err:
+                        logger.warning("Reset: Failed to delete Gateway target for %s: %s", function_name, gw_err)
+
+            # Delete DynamoDB record
+            try:
+                agent_configurations_table.delete_item(
+                    Key={"userId": user_id, "sk": f"LAMBDA#{tool_id}"}
+                )
+            except Exception as e:
+                logger.warning("Reset: Failed to delete Lambda tool record %s: %s", tool_id, e)
+
+        # Step 3: Delete all MEMORY# records — query main table directly to get memoryId
+        # Collect memoryIds FIRST, then delete AWS resources, then delete DynamoDB records
+        try:
+            memory_response = agent_configurations_table.query(
+                KeyConditionExpression="userId = :uid AND begins_with(sk, :prefix)",
+                ExpressionAttributeValues={
+                    ":uid": user_id,
+                    ":prefix": "MEMORY#",
+                },
+            )
+            memory_tools = memory_response.get("Items", [])
+        except Exception as e:
+            logger.warning("Reset: Failed to query memory tools: %s", e)
+            memory_tools = []
+
+        for item in memory_tools:
+            mem_tool_id = item.get("toolId", "")
+            memory_id = item.get("memoryId", "")
+
+            # Delete AgentCore memory instance FIRST (before DynamoDB record)
+            if memory_id:
+                try:
+                    client = _get_bedrock_agentcore_control_client()
+                    client.delete_memory(memoryId=memory_id)
+                    logger.info("Reset: Deleted AgentCore Memory %s", memory_id)
+                except Exception as e:
+                    logger.warning("Reset: Failed to delete AgentCore Memory %s: %s", memory_id, e)
+
+            # Delete DynamoDB record only after AWS resource deletion attempted
+            try:
+                agent_configurations_table.delete_item(
+                    Key={"userId": user_id, "sk": f"MEMORY#{mem_tool_id}"}
+                )
+            except Exception as e:
+                logger.warning("Reset: Failed to delete memory tool record %s: %s", mem_tool_id, e)
+
+        # Step 4: Delete all GUARDRAIL# records — query main table directly to get guardrailId
+        try:
+            guardrail_response = agent_configurations_table.query(
+                KeyConditionExpression="userId = :uid AND begins_with(sk, :prefix)",
+                ExpressionAttributeValues={
+                    ":uid": user_id,
+                    ":prefix": "GUARDRAIL#",
+                },
+            )
+            guardrail_tools = guardrail_response.get("Items", [])
+        except Exception as e:
+            logger.warning("Reset: Failed to query guardrail tools: %s", e)
+            guardrail_tools = []
+
+        for item in guardrail_tools:
+            gr_tool_id = item.get("toolId", "")
+            guardrail_id = item.get("guardrailId", "")
+
+            # Delete Bedrock guardrail (best effort)
+            if guardrail_id:
+                try:
+                    client = _get_bedrock_client()
+                    client.delete_guardrail(guardrailIdentifier=guardrail_id)
+                    logger.info("Reset: Deleted Bedrock Guardrail %s", guardrail_id)
+                except Exception as e:
+                    logger.warning("Reset: Failed to delete Bedrock Guardrail %s: %s", guardrail_id, e)
+
+            # Delete DynamoDB record
+            try:
+                agent_configurations_table.delete_item(
+                    Key={"userId": user_id, "sk": f"GUARDRAIL#{gr_tool_id}"}
+                )
+            except Exception as e:
+                logger.warning("Reset: Failed to delete guardrail tool record %s: %s", gr_tool_id, e)
+
+        # Step 5: Delete SUPERVISOR record so it gets re-seeded
+        try:
+            agent_configurations_table.delete_item(
+                Key={"userId": user_id, "sk": "SUPERVISOR"}
+            )
+        except Exception as e:
+            logger.warning("Reset: Failed to delete supervisor config: %s", e)
+
+        # Delete pathfinder default sub-agent and tool records so they get re-seeded fresh
+        try:
+            agent_configurations_table.delete_item(
+                Key={"userId": user_id, "sk": f"SUBAGENT#{DEFAULT_PATHFINDER_SUBAGENT_ID}"}
+            )
+        except Exception:
+            pass
+        try:
+            agent_configurations_table.delete_item(
+                Key={"userId": user_id, "sk": "LAMBDA#pathfinder-default"}
+            )
+        except Exception:
+            pass
+
+        # Step 6: Re-seed defaults
+        _seed_defaults_for_user(user_id)
+
+        # Force overwrite the supervisor to ensure correct state (pathfinder attached)
+        agent_configurations_table.put_item(Item={
+            "userId": user_id,
+            "sk": "SUPERVISOR",
+            "name": DEFAULT_SUPERVISOR_CONFIG["name"],
+            "systemPrompt": DEFAULT_SUPERVISOR_CONFIG["systemPrompt"],
+            "modelId": DEFAULT_SUPERVISOR_CONFIG["modelId"],
+            "subAgents": [DEFAULT_PATHFINDER_SUBAGENT_ID],
+            "lambdaTools": DEFAULT_SUPERVISOR_CONFIG["lambdaTools"],
+            "memoryTool": None,
+            "guardrailTool": None,
+            "createdAt": _now_iso(),
+            "updatedAt": _now_iso(),
+        })
+
+        # Ensure the Pathfinder Lambda function exists in AWS (recreate if user deleted it)
+        try:
+            lambda_client.get_function(FunctionName="AgentCoreGatewayTool-Pathfinder")
+            logger.info("Reset: Pathfinder Lambda exists")
+        except Exception:
+            # Pathfinder doesn't exist — recreate it from the CDK-deployed code
+            # We can't easily recreate the full pathfinder code here, but we can create a placeholder
+            # that will be replaced on next CDK deploy. For now, create with hello-world.
+            logger.info("Reset: Pathfinder Lambda missing, recreating...")
+            lambda_tool_role_arn = os.environ.get("LAMBDA_TOOL_ROLE_ARN", "")
+            if lambda_tool_role_arn:
+                import io, zipfile
+                hello_code = 'import json\ndef lambda_handler(event, context):\n    return {"statusCode": 200, "body": json.dumps({"error": "Pathfinder needs redeployment. Run cdk deploy."})}\n'
+                buf = io.BytesIO()
+                with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.writestr("lambda_handler.py", hello_code)
+                buf.seek(0)
+                try:
+                    lambda_client.create_function(
+                        FunctionName="AgentCoreGatewayTool-Pathfinder",
+                        Runtime="python3.12",
+                        Role=lambda_tool_role_arn,
+                        Handler="lambda_handler.lambda_handler",
+                        Code={"ZipFile": buf.read()},
+                        Timeout=30,
+                        MemorySize=256,
+                    )
+                    logger.info("Reset: Recreated Pathfinder Lambda (placeholder)")
+                except Exception as e2:
+                    logger.warning("Reset: Failed to recreate Pathfinder Lambda: %s", e2)
+
+        return {"success": True, "statusCode": 200, "message": "Configuration reset successfully"}
+
+    except Exception as e:
+        logger.error("Error resetting configuration for user %s: %s", user_id, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to reset configuration: {e}"}
+
+
+def handle_regenerate_tool_schema(arguments: dict, event: dict) -> dict:
+    """Regenerate the MCP Gateway tool schema for an existing Lambda tool.
+
+    Called by the schema generator EventBridge rule when Lambda code is updated.
+    Only regenerates the schema — does NOT create the Lambda function.
+
+    Args:
+        arguments.name: Tool name (without AgentCoreGatewayTool- prefix)
+    """
+    name = arguments.get("name", "")
+    if not name:
+        return {"success": False, "statusCode": 400, "message": "name is required"}
+
+    function_name = f"AgentCoreGatewayTool-{name}"
+
+    try:
+        _auto_update_gateway_schema(function_name, user_id=_get_user_id(event))
+        return {"success": True, "message": f"Schema regenerated for {function_name}"}
+    except Exception as e:
+        logger.error("Failed to regenerate schema for %s: %s", function_name, e)
+        return {"success": False, "statusCode": 500, "message": f"Failed to regenerate schema: {e}"}

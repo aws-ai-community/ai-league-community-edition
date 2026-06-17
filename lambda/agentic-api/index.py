@@ -109,6 +109,10 @@ def handler(event, context):
         "ListGuardrail": agent_config_handlers.handle_list_guardrail,
         "GetAgentCoreRuntime": agent_config_handlers.handle_get_agent_core_runtime,
         "ListAgentVersions": agent_config_handlers.handle_list_agent_versions,
+        # Phase 3 Queries
+        "GetCodeEditorStatus": agent_config_handlers.handle_get_code_editor_status,
+        "GetSchemaModelConfig": agent_config_handlers.handle_get_schema_model_config,
+        "GetPresignedDomainUrl": agent_config_handlers.handle_get_presigned_domain_url,
         # Mutations
         "InvokeAgentCoreRuntime": handle_invoke_agent_core_runtime,
         "SubmitToLeaderboard": handle_submit_to_leaderboard,
@@ -118,13 +122,19 @@ def handler(event, context):
         "CreateSubAgent": agent_config_handlers.handle_create_sub_agent,
         "UpdateSubAgent": agent_config_handlers.handle_update_sub_agent,
         "DeleteSubAgent": agent_config_handlers.handle_delete_sub_agent,
-        "UpdateLambdaTool": agent_config_handlers.handle_update_lambda_tool,
+        "CreateLambdaTool": agent_config_handlers.handle_create_lambda_tool,
         "DeleteLambdaTool": agent_config_handlers.handle_delete_lambda_tool,
         "CreateMemory": agent_config_handlers.handle_create_memory,
         "DeleteMemory": agent_config_handlers.handle_delete_memory,
         "CreateGuardrail": agent_config_handlers.handle_create_guardrail,
         "DeleteGuardrail": agent_config_handlers.handle_delete_guardrail,
         "CreateModel": agent_config_handlers.handle_create_model,
+        # Phase 3 Mutations
+        "StartCodeEditor": agent_config_handlers.handle_start_code_editor,
+        "StopCodeEditor": agent_config_handlers.handle_stop_code_editor,
+        "ResetConfiguration": agent_config_handlers.handle_reset_configuration,
+        "SaveSchemaModelConfig": agent_config_handlers.handle_save_schema_model_config,
+        "RegenerateToolSchema": agent_config_handlers.handle_regenerate_tool_schema,
     }
 
     handler_fn = handlers.get(field_name)
@@ -326,6 +336,30 @@ def handle_invoke_agent_core_runtime(arguments, event):
     )
 
 
+def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
+    """Resolve Lambda tool IDs to their function names (used as gateway target name prefixes).
+
+    Each tool ID maps to a DynamoDB record (sk=LAMBDA#{toolId}) with a functionName field.
+    The function name (e.g. 'AgentCoreGatewayTool-P') is used as a prefix to match
+    gateway tools (e.g. 'AgentCoreGatewayTool-P___route').
+
+    The container runtime appends '___' separator in startswith checks to prevent
+    prefix collisions (e.g. 'P' matching 'Pathfinder').
+    """
+    targets = []
+    for tool_id in tool_ids:
+        try:
+            resp = agent_configurations_table.get_item(
+                Key={"userId": user_id, "sk": f"LAMBDA#{tool_id}"}
+            )
+            item = resp.get("Item")
+            if item and item.get("functionName"):
+                targets.append(item["functionName"])
+        except Exception:
+            pass
+    return targets if targets else ["AgentCoreGatewayTool-Pathfinder"]
+
+
 def _handle_agentcore_flow(
     map_id: str,
     custom_model_count: int,
@@ -444,9 +478,10 @@ def _handle_agentcore_flow(
             invoke_payload["supervisor_system_prompt"] = sup_item["systemPrompt"]
         # Supervisor's own Lambda tool targets (if any attached directly)
         if sup_item.get("lambdaTools"):
-            invoke_payload["supervisor_targets"] = [
-                "pathfind", "Pathfinding", "PathfindingLambdaTarget",
-            ]
+            # Resolve tool IDs to function names (= gateway target names)
+            supervisor_targets = _resolve_tool_targets(user_id, sup_item["lambdaTools"])
+            if supervisor_targets:
+                invoke_payload["supervisor_targets"] = supervisor_targets
         # Load sub-agents and pass them with their tool targets
         sub_agent_ids = sup_item.get("subAgents", [])
         if sub_agent_ids:
@@ -458,10 +493,10 @@ def _handle_agentcore_flow(
                     )
                     sa_item = sa_resp.get("Item")
                     if sa_item:
-                        # Map Lambda tool IDs to Gateway target prefixes
+                        # Resolve Lambda tool IDs to Gateway target prefixes
                         targets = None
                         if sa_item.get("lambdaTools"):
-                            targets = ["pathfind", "Pathfinding", "PathfindingLambdaTarget"]
+                            targets = _resolve_tool_targets(user_id, sa_item["lambdaTools"])
                         sub_agents_config.append({
                             "id": sa_id,
                             "name": sa_item.get("name", "").replace(" ", "_"),

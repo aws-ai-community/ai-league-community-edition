@@ -47,8 +47,9 @@ def create_sub_agent(agent_id: str, gateway_url: str, model_id: str = None, syst
             gateway_tools = []
             for tool in all_gateway_tools:
                 tool_name = tool.mcp_tool.name
-                # Check if tool name starts with any allowed target
-                if any(tool_name.startswith(target) for target in allowed_targets):
+                # Check if tool name starts with any allowed target + separator
+                # Use "target___" to avoid prefix collisions (e.g. "P" matching "Pathfinder")
+                if any(tool_name.startswith(target + "___") or tool_name == target for target in allowed_targets):
                     gateway_tools.append(tool)
             logger.info(f"Sub-agent {agent_id} filtered to {len(gateway_tools)} tools from targets {allowed_targets}:")
         else:

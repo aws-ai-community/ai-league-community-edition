@@ -11,6 +11,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cf from 'aws-cdk-lib/aws-cloudfront';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as cloudtrail from 'aws-cdk-lib/aws-cloudtrail';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { Construct } from 'constructs';
@@ -176,14 +179,29 @@ export class CdkStack extends cdk.Stack {
       },
     });
 
+    // Shared execution role for all Lambda tool functions (AgentCoreGatewayTool-*)
+    const lambdaToolRole = new iam.Role(this, 'LambdaToolRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      description: 'Shared execution role for all AgentCoreGatewayTool-* Lambda functions',
+    });
+    lambdaToolRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/AgentCoreGatewayTool-*:*`],
+    }));
+    lambdaToolRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:*`],
+    }));
+
     // Pathfinder Tool Lambda — default BFS pathfinding tool for AgentCore
     const pathfinderLambda = new lambda.Function(this, 'PathfinderToolLambda', {
-      functionName: 'ai-league-pathfinder-tool',
+      functionName: 'AgentCoreGatewayTool-Pathfinder',
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'index.lambda_handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/pathfinder-tool')),
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      role: lambdaToolRole,
     });
 
     // Export Pathfinder Lambda ARN to the agentic-api Lambda
@@ -195,7 +213,7 @@ export class CdkStack extends cdk.Stack {
     });
     gatewayRole.addToPolicy(new iam.PolicyStatement({
       actions: ['lambda:InvokeFunction'],
-      resources: [pathfinderLambda.functionArn],
+      resources: [`arn:aws:lambda:${this.region}:${this.account}:function:AgentCoreGatewayTool-*`],
     }));
 
     // AgentCore Gateway (L1 CfnResource — no L2 construct)
@@ -215,7 +233,7 @@ export class CdkStack extends cdk.Stack {
       type: 'AWS::BedrockAgentCore::GatewayTarget',
       properties: {
         GatewayIdentifier: gateway.ref,
-        Name: 'PathfindingLambdaTarget',
+        Name: 'AgentCoreGatewayTool-Pathfinder',
         Description: 'BFS pathfinding with swift and get_coins strategies',
         TargetConfiguration: {
           Mcp: {
@@ -516,6 +534,359 @@ def handler(event, context):
       })
     );
 
+    // Grant Lambda permissions to manage Lambda tool functions (AgentCoreGatewayTool-*)
+    agenticLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: [
+          'lambda:CreateFunction',
+          'lambda:DeleteFunction',
+          'lambda:GetFunction',
+          'lambda:GetFunctionConfiguration',
+          'lambda:UpdateFunctionCode',
+        ],
+        resources: [`arn:aws:lambda:${this.region}:${this.account}:function:AgentCoreGatewayTool-*`],
+      })
+    );
+
+    // Grant Lambda permission to pass the LambdaToolRole when creating tool functions
+    agenticLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['iam:PassRole'],
+        resources: [lambdaToolRole.roleArn],
+      })
+    );
+
+    // Export the LambdaToolRole ARN to the agentic-api Lambda
+    agenticLambda.addEnvironment('LAMBDA_TOOL_ROLE_ARN', lambdaToolRole.roleArn);
+
+    // ========================================================================
+    // SageMaker Domain + Code Editor Space
+    // ========================================================================
+
+    // VPC for SageMaker (minimal — 2 public subnets, no NAT gateway)
+    const smVpc = new cdk.aws_ec2.Vpc(this, 'SageMakerVpc', {
+      maxAzs: 2,
+      natGateways: 0,
+      subnetConfiguration: [
+        { name: 'Public', subnetType: cdk.aws_ec2.SubnetType.PUBLIC, cidrMask: 24 },
+      ],
+    });
+
+    // SageMaker execution role
+    const smExecRole = new iam.Role(this, 'SageMakerExecRole', {
+      assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerFullAccess'),
+      ],
+    });
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['lambda:UpdateFunctionCode', 'lambda:GetFunction', 'lambda:InvokeFunction'],
+      resources: [`arn:aws:lambda:*:*:function:AgentCoreGatewayTool-*`],
+    }));
+
+    // SageMaker Domain
+    const smDomain = new cdk.aws_sagemaker.CfnDomain(this, 'SageMakerDomain', {
+      domainName: 'ai-league-practice',
+      authMode: 'IAM',
+      defaultUserSettings: {
+        executionRole: smExecRole.roleArn,
+      },
+      subnetIds: smVpc.publicSubnets.map(s => s.subnetId),
+      vpcId: smVpc.vpcId,
+    });
+
+    // SageMaker User Profile
+    const smUserProfile = new cdk.aws_sagemaker.CfnUserProfile(this, 'SageMakerUserProfile', {
+      domainId: smDomain.attrDomainId,
+      userProfileName: 'ai-league-user',
+      userSettings: {
+        executionRole: smExecRole.roleArn,
+      },
+    });
+
+    // Custom resource Lambda to create Code Editor space (no native CF resource for spaces)
+    const createSpaceFn = new lambda.Function(this, 'CreateSpaceFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(5),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import time
+
+def handler(event, context):
+    sm = boto3.client('sagemaker')
+    try:
+        if event['RequestType'] == 'Create':
+            domain_id = event['ResourceProperties']['DomainId']
+            space_name = event['ResourceProperties']['SpaceName']
+            user_profile = event['ResourceProperties']['UserProfileName']
+            sm.create_space(
+                DomainId=domain_id, SpaceName=space_name,
+                OwnershipSettings={'OwnerUserProfileName': user_profile},
+                SpaceSharingSettings={'SharingType': 'Private'},
+                SpaceSettings={'AppType': 'CodeEditor', 'CodeEditorAppSettings': {
+                    'DefaultResourceSpec': {
+                        'SageMakerImageArn': 'arn:aws:sagemaker:us-east-1:885854791233:image/sagemaker-distribution-cpu',
+                        'SageMakerImageVersionAlias': '4',
+                        'InstanceType': 'ml.t3.medium'
+                    }
+                }}
+            )
+            for _ in range(30):
+                resp = sm.describe_space(DomainId=domain_id, SpaceName=space_name)
+                if resp['Status'] == 'InService': break
+                if resp['Status'] == 'Failed': raise Exception('Space creation failed')
+                time.sleep(10)
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'SpaceName': space_name})
+        elif event['RequestType'] == 'Delete':
+            domain_id = event['ResourceProperties']['DomainId']
+            space_name = event['ResourceProperties']['SpaceName']
+            try:
+                sm.delete_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
+            except: pass
+            try:
+                sm.delete_space(DomainId=domain_id, SpaceName=space_name)
+            except: pass
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error: {e}')
+        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+`),
+    });
+    createSpaceFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['sagemaker:CreateSpace', 'sagemaker:DeleteSpace', 'sagemaker:DescribeSpace',
+                'sagemaker:CreateApp', 'sagemaker:DeleteApp'],
+      resources: ['*'],
+    }));
+
+    const codeEditorSpace = new cdk.CustomResource(this, 'CodeEditorSpace', {
+      serviceToken: createSpaceFn.functionArn,
+      properties: {
+        DomainId: smDomain.attrDomainId,
+        SpaceName: 'ai-league-codeeditor',
+        UserProfileName: 'ai-league-user',
+      },
+    });
+    codeEditorSpace.node.addDependency(smUserProfile);
+
+    // Ensure CF deletes the space before the user profile (CfnResource-level dependency)
+    // The CustomResource Delete handler must run before UserProfile deletion
+    const spaceCfn = codeEditorSpace.node.defaultChild as cdk.CfnResource;
+    spaceCfn.addDependency(smUserProfile);
+
+    // Export SageMaker identifiers to the agentic-api Lambda
+    agenticLambda.addEnvironment('SAGEMAKER_DOMAIN_ID', smDomain.attrDomainId);
+    agenticLambda.addEnvironment('SAGEMAKER_USER_PROFILE', 'ai-league-user');
+    agenticLambda.addEnvironment('SAGEMAKER_SPACE_NAME', 'ai-league-codeeditor');
+
+    // Grant the agentic-api Lambda SageMaker IDE management permissions
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'sagemaker:CreateApp',
+        'sagemaker:DeleteApp',
+        'sagemaker:DescribeApp',
+        'sagemaker:CreatePresignedDomainUrl',
+      ],
+      resources: ['*'],
+    }));
+
+    // ========================================================================
+    // EventBridge, CloudTrail, Schema Generator & Auto-Shutdown Lambdas
+    // ========================================================================
+
+    // S3 bucket for CloudTrail logs with aggressive lifecycle expiration
+    const cloudTrailBucket = new s3.Bucket(this, 'CloudTrailBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      lifecycleRules: [
+        {
+          expiration: cdk.Duration.days(1),
+        },
+      ],
+    });
+
+    // Bucket policy required by CloudTrail to write logs
+    cloudTrailBucket.addToResourcePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      principals: [new iam.ServicePrincipal('cloudtrail.amazonaws.com')],
+      actions: ['s3:GetBucketAcl'],
+      resources: [cloudTrailBucket.bucketArn],
+    }));
+    cloudTrailBucket.addToResourcePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      principals: [new iam.ServicePrincipal('cloudtrail.amazonaws.com')],
+      actions: ['s3:PutObject'],
+      resources: [`${cloudTrailBucket.bucketArn}/AWSLogs/${this.account}/*`],
+      conditions: {
+        StringEquals: {
+          's3:x-amz-acl': 'bucket-owner-full-control',
+        },
+      },
+    }));
+
+    // CloudTrail trail — management events only, shortest retention
+    new cloudtrail.Trail(this, 'LambdaToolTrail', {
+      bucket: cloudTrailBucket,
+      isMultiRegionTrail: false,
+      includeGlobalServiceEvents: false,
+      managementEvents: cloudtrail.ReadWriteType.WRITE_ONLY,
+    });
+
+    // EventBridge rule matching UpdateFunctionCode for AgentCoreGatewayTool-* functions
+    const lambdaCodeUpdateRule = new events.Rule(this, 'LambdaCodeUpdateRule', {
+      description: 'Triggers schema regeneration when AgentCoreGatewayTool-* code is updated',
+      eventPattern: {
+        source: ['aws.lambda'],
+        detailType: ['AWS API Call via CloudTrail'],
+        detail: {
+          eventSource: ['lambda.amazonaws.com'],
+          eventName: ['UpdateFunctionCode20150331v2'],
+          requestParameters: {
+            functionName: [{ prefix: 'AgentCoreGatewayTool-' }],
+          },
+        },
+      },
+    });
+
+    // Schema Generator Lambda — invokes agentic-api resolver to regenerate schema
+    const schemaGeneratorLambda = new lambda.Function(this, 'SchemaGeneratorLambda', {
+      functionName: 'ai-league-schema-generator',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 128,
+      environment: {
+        RESOLVER_FUNCTION_NAME: agenticLambda.functionName,
+      },
+      code: lambda.Code.fromInline(`
+import json
+import boto3
+import os
+
+lambda_client = boto3.client('lambda')
+RESOLVER_FUNCTION_NAME = os.environ['RESOLVER_FUNCTION_NAME']
+
+def handler(event, context):
+    """
+    Triggered by EventBridge when AgentCoreGatewayTool-* code is updated.
+    Invokes the agentic resolver Lambda asynchronously with a synthetic payload
+    to trigger schema regeneration.
+    """
+    detail = event.get('detail', {})
+    function_name = detail.get('requestParameters', {}).get('functionName', '')
+
+    if not function_name.startswith('AgentCoreGatewayTool-'):
+        print(f"Ignoring non-tool function: {function_name}")
+        return {'statusCode': 200, 'body': 'Ignored'}
+
+    tool_name = function_name.replace('AgentCoreGatewayTool-', '')
+
+    payload = {
+        'info': {'fieldName': 'RegenerateToolSchema'},
+        'identity': {'claims': {'cognito:username': 'system'}},
+        'arguments': {'name': tool_name},
+    }
+
+    response = lambda_client.invoke(
+        FunctionName=RESOLVER_FUNCTION_NAME,
+        InvocationType='Event',
+        Payload=json.dumps(payload),
+    )
+
+    print(f"Invoked resolver for {function_name}, status: {response['StatusCode']}")
+    return {'statusCode': 200, 'body': f'Schema regeneration triggered for {function_name}'}
+`),
+    });
+
+    // Grant Schema Generator Lambda permission to invoke the agentic-api Lambda
+    agenticLambda.grantInvoke(schemaGeneratorLambda);
+
+    // Add Schema Generator Lambda as the EventBridge rule target
+    lambdaCodeUpdateRule.addTarget(new targets.LambdaFunction(schemaGeneratorLambda));
+
+    // Auto-Shutdown Lambda — stops Code Editor IDE after 4 hours
+    const autoShutdownLambda = new lambda.Function(this, 'AutoShutdownLambda', {
+      functionName: 'ai-league-auto-shutdown',
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 128,
+      environment: {
+        SAGEMAKER_DOMAIN_ID: smDomain.attrDomainId,
+        SAGEMAKER_SPACE_NAME: 'ai-league-codeeditor',
+      },
+      code: lambda.Code.fromInline(`
+import json
+import boto3
+import os
+
+sagemaker_client = boto3.client('sagemaker')
+
+DOMAIN_ID = os.environ.get('SAGEMAKER_DOMAIN_ID', '')
+SPACE_NAME = os.environ.get('SAGEMAKER_SPACE_NAME', '')
+
+def handler(event, context):
+    """
+    Auto-shutdown Lambda triggered every 4 hours.
+    Stops the Code Editor IDE by calling sagemaker.delete_app().
+    """
+    if not DOMAIN_ID or not SPACE_NAME:
+        print("SageMaker configuration not set, skipping shutdown")
+        return {'statusCode': 200, 'body': 'Skipped - no configuration'}
+
+    try:
+        # Check if the app is running
+        response = sagemaker_client.describe_app(
+            DomainId=DOMAIN_ID,
+            SpaceName=SPACE_NAME,
+            AppType='CodeEditor',
+            AppName='default',
+        )
+
+        status = response.get('Status', '')
+        if status == 'InService':
+            print("Code Editor is InService, stopping...")
+            sagemaker_client.delete_app(
+                DomainId=DOMAIN_ID,
+                SpaceName=SPACE_NAME,
+                AppType='CodeEditor',
+                AppName='default',
+            )
+            print("Code Editor stop initiated")
+            return {'statusCode': 200, 'body': 'Shutdown initiated'}
+        else:
+            print(f"Code Editor status is {status}, no action needed")
+            return {'statusCode': 200, 'body': f'No action - status: {status}'}
+
+    except sagemaker_client.exceptions.ResourceNotFound:
+        print("Code Editor app not found (already stopped)")
+        return {'statusCode': 200, 'body': 'Already stopped'}
+    except Exception as e:
+        print(f"Error during auto-shutdown: {str(e)}")
+        return {'statusCode': 500, 'body': f'Error: {str(e)}'}
+`),
+    });
+
+    // Grant Auto-Shutdown Lambda permissions for SageMaker operations
+    autoShutdownLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sagemaker:DeleteApp', 'sagemaker:DescribeApp'],
+      resources: ['*'],
+    }));
+
+    // Scheduled EventBridge rule — triggers Auto-Shutdown every 4 hours
+    const autoShutdownRule = new events.Rule(this, 'AutoShutdownRule', {
+      description: 'Triggers Code Editor auto-shutdown every 4 hours',
+      schedule: events.Schedule.rate(cdk.Duration.hours(4)),
+    });
+    autoShutdownRule.addTarget(new targets.LambdaFunction(autoShutdownLambda));
+
     // ========================================================================
     // Game Runner Lambda — async execution of game sessions (10 min timeout)
     // ========================================================================
@@ -636,6 +1007,18 @@ def handler(event, context):
       typeName: 'Query',
       fieldName: 'ListAgentVersions',
     });
+    agenticDataSource.createResolver('GetCodeEditorStatusResolver', {
+      typeName: 'Query',
+      fieldName: 'GetCodeEditorStatus',
+    });
+    agenticDataSource.createResolver('GetPresignedDomainUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetPresignedDomainUrl',
+    });
+    agenticDataSource.createResolver('GetSchemaModelConfigResolver', {
+      typeName: 'Query',
+      fieldName: 'GetSchemaModelConfig',
+    });
 
     // Phase 2 Mutation resolvers (Agent Builder)
     agenticDataSource.createResolver('UpdateSupervisorAgentResolver', {
@@ -654,13 +1037,29 @@ def handler(event, context):
       typeName: 'Mutation',
       fieldName: 'DeleteSubAgent',
     });
-    agenticDataSource.createResolver('UpdateLambdaToolResolver', {
+    agenticDataSource.createResolver('CreateLambdaToolResolver', {
       typeName: 'Mutation',
-      fieldName: 'UpdateLambdaTool',
+      fieldName: 'CreateLambdaTool',
     });
     agenticDataSource.createResolver('DeleteLambdaToolResolver', {
       typeName: 'Mutation',
       fieldName: 'DeleteLambdaTool',
+    });
+    agenticDataSource.createResolver('StartCodeEditorResolver', {
+      typeName: 'Mutation',
+      fieldName: 'StartCodeEditor',
+    });
+    agenticDataSource.createResolver('StopCodeEditorResolver', {
+      typeName: 'Mutation',
+      fieldName: 'StopCodeEditor',
+    });
+    agenticDataSource.createResolver('ResetConfigurationResolver', {
+      typeName: 'Mutation',
+      fieldName: 'ResetConfiguration',
+    });
+    agenticDataSource.createResolver('SaveSchemaModelConfigResolver', {
+      typeName: 'Mutation',
+      fieldName: 'SaveSchemaModelConfig',
     });
     agenticDataSource.createResolver('CreateMemoryResolver', {
       typeName: 'Mutation',
@@ -987,6 +1386,236 @@ def handler(event, context):
         UserPoolId: this.userPool.userPoolId,
       },
     });
+
+    // ========================================================================
+    // Cleanup Custom Resource — runs on cdk destroy to remove user-created resources
+    // ========================================================================
+
+    const cleanupFn = new lambda.Function(this, 'CleanupFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      environment: {
+        GATEWAY_URL: gatewayUrl.toString(),
+        AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
+        VPC_ID: smVpc.vpcId,
+      },
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import os
+import re
+
+def handler(event, context):
+    """On Delete: clean up user-created Lambdas, Gateway targets, Memories, Guardrails."""
+    try:
+        if event['RequestType'] != 'Delete':
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return
+
+        # 1. Delete all AgentCoreGatewayTool-* Lambdas (except Pathfinder, already CDK-managed)
+        lambda_client = boto3.client('lambda')
+        paginator = lambda_client.get_paginator('list_functions')
+        for page in paginator.paginate():
+            for fn in page['Functions']:
+                name = fn['FunctionName']
+                if name.startswith('AgentCoreGatewayTool-') and name != 'AgentCoreGatewayTool-Pathfinder':
+                    try:
+                        lambda_client.delete_function(FunctionName=name)
+                        print(f'Deleted Lambda: {name}')
+                    except Exception as e:
+                        print(f'Failed to delete Lambda {name}: {e}')
+
+        # 2. Delete non-CDK Gateway targets (user-created tools only)
+        gateway_url = os.environ.get('GATEWAY_URL', '')
+        gw_match = re.search(r'https://([^.]+)\\.gateway', gateway_url)
+        if gw_match:
+            gw_id = gw_match.group(1)
+            ctrl = boto3.client('bedrock-agentcore-control')
+            try:
+                targets = ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+                for t in targets.get('items', []):
+                    # Skip CDK-managed Pathfinder target (CF handles it)
+                    if t.get('name') == 'AgentCoreGatewayTool-Pathfinder':
+                        continue
+                    try:
+                        ctrl.delete_gateway_target(gatewayIdentifier=gw_id, targetId=t['targetId'])
+                        print(f'Deleted Gateway target: {t.get("name", t["targetId"])}')
+                    except Exception as e:
+                        print(f'Failed to delete Gateway target {t["targetId"]}: {e}')
+            except Exception as e:
+                print(f'Failed to list Gateway targets: {e}')
+
+        # 3. Delete all AgentCore Memories
+        try:
+            ctrl = boto3.client('bedrock-agentcore-control')
+            memories = ctrl.list_memories()
+            for m in memories.get('memories', memories.get('items', [])):
+                mem_id = m.get('id', '')
+                if mem_id:
+                    try:
+                        ctrl.delete_memory(memoryId=mem_id)
+                        print(f'Deleted Memory: {mem_id}')
+                    except Exception as e:
+                        print(f'Failed to delete Memory {mem_id}: {e}')
+        except Exception as e:
+            print(f'Failed to list Memories: {e}')
+
+        # 4. Delete all Bedrock Guardrails (community edition creates them with prefix)
+        try:
+            bedrock = boto3.client('bedrock')
+            guardrails = bedrock.list_guardrails()
+            for g in guardrails.get('guardrails', []):
+                gr_id = g.get('id', '')
+                if gr_id:
+                    try:
+                        bedrock.delete_guardrail(guardrailIdentifier=gr_id)
+                        print(f'Deleted Guardrail: {gr_id}')
+                    except Exception as e:
+                        print(f'Failed to delete Guardrail {gr_id}: {e}')
+        except Exception as e:
+            print(f'Failed to list Guardrails: {e}')
+
+        # 5. Delete SageMaker-created EFS and security groups in our VPC (blocks VPC deletion)
+        # SageMaker domain auto-creates EFS for home directories and security groups.
+        # Must delete mount targets, then EFS, then non-default SGs in the VPC.
+        # Scoped to our VPC only (passed via environment variable).
+        try:
+            import time
+            ec2 = boto3.client('ec2')
+            efs = boto3.client('efs')
+            vpc_id = os.environ.get('VPC_ID', '')
+            if not vpc_id:
+                print('No VPC_ID configured, skipping EFS/SG cleanup')
+            else:
+                # Delete EFS mount targets and file systems in our VPC
+                fs_list = efs.describe_file_systems()
+                for fs in fs_list.get('FileSystems', []):
+                    fs_id = fs['FileSystemId']
+                    # Check mount targets — only process if they're in our VPC
+                    mts = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
+                    in_our_vpc = any(mt.get('VpcId') == vpc_id for mt in mts)
+                    if not in_our_vpc and mts:
+                        continue
+                    if not mts:
+                        # No mount targets — check tags to see if SageMaker created it
+                        try:
+                            tags = efs.describe_tags(FileSystemId=fs_id).get('Tags', [])
+                            is_sagemaker = any('ManagedByAmazonSageMakerResource' in t.get('Key', '') for t in tags)
+                            if not is_sagemaker:
+                                continue
+                        except Exception:
+                            continue
+                    print(f'Found EFS in our VPC: {fs_id}')
+                    for mt in mts:
+                        try:
+                            efs.delete_mount_target(MountTargetId=mt['MountTargetId'])
+                            print(f'  Deleted mount target: {mt["MountTargetId"]}')
+                        except Exception as e:
+                            print(f'  Failed to delete mount target: {e}')
+                    # Wait for mount targets to be deleted
+                    for _ in range(30):
+                        remaining = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
+                        if not remaining:
+                            break
+                        time.sleep(2)
+                    try:
+                        efs.delete_file_system(FileSystemId=fs_id)
+                        print(f'  Deleted EFS: {fs_id}')
+                    except Exception as e:
+                        print(f'  Failed to delete EFS {fs_id}: {e}')
+
+                # Delete non-default security groups in our VPC
+                sgs = ec2.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+                for sg in sgs.get('SecurityGroups', []):
+                    if sg['GroupName'] == 'default':
+                        continue
+                    sg_id = sg['GroupId']
+                    # Remove all ingress/egress rules first (handles cross-SG refs)
+                    try:
+                        if sg.get('IpPermissions'):
+                            ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=sg['IpPermissions'])
+                        if sg.get('IpPermissionsEgress'):
+                            ec2.revoke_security_group_egress(GroupId=sg_id, IpPermissions=sg['IpPermissionsEgress'])
+                    except Exception:
+                        pass
+                # Now delete them (second pass after all rules removed)
+                for sg in sgs.get('SecurityGroups', []):
+                    if sg['GroupName'] == 'default':
+                        continue
+                    try:
+                        ec2.delete_security_group(GroupId=sg['GroupId'])
+                        print(f'  Deleted SG: {sg["GroupId"]} ({sg["GroupName"]})')
+                    except Exception as e:
+                        print(f'  Failed to delete SG {sg["GroupId"]}: {e}')
+        except Exception as e:
+            print(f'Failed to clean up EFS/SGs: {e}')
+
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Cleanup error: {e}')
+        # Don't fail the stack deletion on cleanup errors
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+
+    // Grant cleanup Lambda permissions for all resource types it needs to delete
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:ListFunctions', 'lambda:DeleteFunction'],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'bedrock-agentcore:ListGatewayTargets', 'bedrock-agentcore:DeleteGatewayTarget',
+        'bedrock-agentcore:ListMemories', 'bedrock-agentcore:DeleteMemory',
+        'bedrock-agentcore-control:ListGatewayTargets', 'bedrock-agentcore-control:DeleteGatewayTarget',
+        'bedrock-agentcore-control:ListMemories', 'bedrock-agentcore-control:DeleteMemory',
+      ],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:ListGuardrails', 'bedrock:DeleteGuardrail'],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'elasticfilesystem:DescribeFileSystems', 'elasticfilesystem:DescribeTags',
+        'elasticfilesystem:DescribeMountTargets', 'elasticfilesystem:DeleteMountTarget',
+        'elasticfilesystem:DeleteFileSystem',
+      ],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'ec2:DescribeSecurityGroups', 'ec2:DeleteSecurityGroup',
+        'ec2:RevokeSecurityGroupIngress', 'ec2:RevokeSecurityGroupEgress',
+      ],
+      resources: ['*'],
+    }));
+    agentConfigurationsTable.grantReadData(cleanupFn);
+
+    const cleanupProvider = new cr.Provider(this, 'CleanupProvider', {
+      onEventHandler: cleanupFn,
+    });
+
+    const cleanupResource = new cdk.CustomResource(this, 'CleanupResource', {
+      serviceToken: cleanupProvider.serviceToken,
+      properties: {
+        // Trigger property ensures the resource exists but only runs handler on Delete
+        Version: '1',
+      },
+    });
+
+    // Dependency chain for clean destroy:
+    // CleanupResource depends on Gateway, PathfindingTarget, and VPC.
+    // On destroy, CF deletes in reverse: CleanupResource first (triggering the cleanup handler
+    // which removes orphan gateway targets and SageMaker EFS), then PathfindingGatewayTarget,
+    // then Gateway (now empty), then VPC (now free of EFS ENIs).
+    const cleanupCfn = cleanupResource.node.defaultChild as cdk.CfnResource;
+    cleanupCfn.addDependency(gateway);
+    cleanupCfn.addDependency(pathfindingTarget);
+    cleanupCfn.addDependency(smVpc.node.findChild('Resource') as cdk.CfnResource);
 
     // Stack outputs
     new cdk.CfnOutput(this, 'UserInterfaceDomainName', {

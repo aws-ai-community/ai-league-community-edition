@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import Alert from '@cloudscape-design/components/alert';
@@ -7,9 +7,18 @@ import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import FormField from '@cloudscape-design/components/form-field';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
+import StatusIndicator from '@cloudscape-design/components/status-indicator';
+import Modal from '@cloudscape-design/components/modal';
+import Box from '@cloudscape-design/components/box';
 import {
   getLlmConfiguration,
   saveLlmConfiguration,
+  getCodeEditorStatus,
+  startCodeEditor,
+  stopCodeEditor,
+  getSchemaModelConfig,
+  saveSchemaModelConfig,
+  resetConfiguration,
 } from '../../services/graphqlClient';
 
 // Model definitions
@@ -104,6 +113,53 @@ export default function ConfigurationPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // IDE Controls state
+  const [ideStatus, setIdeStatus] = useState<string>('Stopped');
+  const [ideLoading, setIdeLoading] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Schema Generation Model state
+  const [schemaModel, setSchemaModel] = useState<SelectProps.Option | null>(
+    findModelOption(DEFAULT_MODEL_ID),
+  );
+  const [schemaModelLoading, setSchemaModelLoading] = useState(false);
+
+  // Reset Configuration state
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const pollIdeStatus = useCallback(async () => {
+    try {
+      const res = await getCodeEditorStatus();
+      const status = res.GetCodeEditorStatus.status;
+      setIdeStatus(status);
+      // Stop polling if we've reached a stable state
+      if (status !== 'Pending' && status !== 'Deleting') {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }
+    } catch {
+      setIdeStatus('Stopped');
+    }
+  }, []);
+
+  // Start polling when status is transitional
+  useEffect(() => {
+    if (ideStatus === 'Pending' || ideStatus === 'Deleting') {
+      if (!pollIntervalRef.current) {
+        pollIntervalRef.current = setInterval(pollIdeStatus, 10000);
+      }
+    }
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [ideStatus, pollIdeStatus]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -111,13 +167,24 @@ export default function ConfigurationPage() {
       setLoading(true);
       setError(null);
       try {
-        const result = await getLlmConfiguration();
+        const [llmResult, ideResult, schemaResult] = await Promise.all([
+          getLlmConfiguration(),
+          getCodeEditorStatus().catch(() => ({ GetCodeEditorStatus: { status: 'Stopped', message: null } })),
+          getSchemaModelConfig().catch(() => ({ GetSchemaModelConfig: { modelId: DEFAULT_MODEL_ID } })),
+        ]);
         if (!cancelled) {
-          const config = result.GetLlmConfiguration;
+          const config = llmResult.GetLlmConfiguration;
           setDefaultModel(findModelOption(config.defaultModel) ?? findModelOption(DEFAULT_MODEL_ID));
           setChallengeGeneration(findOverrideOption(config.challengeGeneration));
           setChallengeGrading(findOverrideOption(config.challengeGrading));
           setGameCommentary(findOverrideOption(config.gameCommentary));
+
+          // IDE status
+          setIdeStatus(ideResult.GetCodeEditorStatus.status);
+
+          // Schema model config
+          const schemaModelId = schemaResult?.GetSchemaModelConfig?.modelId;
+          setSchemaModel(findModelOption(schemaModelId ?? null) ?? findModelOption(DEFAULT_MODEL_ID));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -159,6 +226,55 @@ export default function ConfigurationPage() {
     setChallengeGrading(USE_DEFAULT_OPTION);
     setGameCommentary(USE_DEFAULT_OPTION);
     setSuccess(null);
+  };
+
+  const handleStartIde = async () => {
+    setIdeLoading(true);
+    try {
+      const res = await startCodeEditor();
+      setIdeStatus(res.StartCodeEditor.status);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIdeLoading(false);
+    }
+  };
+
+  const handleStopIde = async () => {
+    setIdeLoading(true);
+    try {
+      const res = await stopCodeEditor();
+      setIdeStatus(res.StopCodeEditor.status);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIdeLoading(false);
+    }
+  };
+
+  const handleSchemaModelChange = async (option: SelectProps.Option) => {
+    setSchemaModel(option);
+    setSchemaModelLoading(true);
+    try {
+      await saveSchemaModelConfig(option.value || DEFAULT_MODEL_ID);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSchemaModelLoading(false);
+    }
+  };
+
+  const handleResetConfiguration = async () => {
+    setResetting(true);
+    try {
+      await resetConfiguration();
+      setSuccess('Configuration reset to defaults successfully.');
+      setShowResetModal(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResetting(false);
+    }
   };
 
   const defaultModelOptions = buildDefaultModelOptions();
@@ -255,6 +371,106 @@ export default function ConfigurationPage() {
           Save Configuration
         </Button>
       </SpaceBetween>
+
+      {/* Code Editor IDE Section */}
+      <Container header={<Header variant="h2">Code Editor IDE</Header>}>
+        <SpaceBetween size="m">
+          <FormField label="Status">
+            {ideStatus === 'InService' && (
+              <StatusIndicator type="success">Running</StatusIndicator>
+            )}
+            {ideStatus === 'Pending' && (
+              <StatusIndicator type="loading">Starting</StatusIndicator>
+            )}
+            {ideStatus === 'Deleting' && (
+              <StatusIndicator type="loading">Stopping</StatusIndicator>
+            )}
+            {ideStatus === 'Stopped' && (
+              <StatusIndicator type="stopped">Stopped</StatusIndicator>
+            )}
+            {ideStatus === 'Error' && (
+              <StatusIndicator type="error">Error</StatusIndicator>
+            )}
+          </FormField>
+          <SpaceBetween size="s" direction="horizontal">
+            <Button
+              onClick={handleStartIde}
+              loading={ideLoading}
+              disabled={ideStatus === 'InService' || ideStatus === 'Pending'}
+            >
+              Start IDE
+            </Button>
+            <Button
+              onClick={handleStopIde}
+              loading={ideLoading}
+              disabled={ideStatus === 'Stopped' || ideStatus === 'Deleting'}
+            >
+              Stop IDE
+            </Button>
+          </SpaceBetween>
+        </SpaceBetween>
+      </Container>
+
+      {/* Schema Generation Model Section */}
+      <Container header={<Header variant="h2">Schema Generation Model</Header>}>
+        <FormField
+          label="Model"
+          description="The model used to auto-generate MCP tool schemas when you deploy Lambda tool code."
+        >
+          <Select
+            selectedOption={schemaModel}
+            onChange={({ detail }) => handleSchemaModelChange(detail.selectedOption)}
+            options={defaultModelOptions}
+            placeholder="Select schema generation model"
+            ariaLabel="Select schema generation model"
+            statusType={schemaModelLoading ? 'loading' : 'finished'}
+          />
+        </FormField>
+      </Container>
+
+      {/* Reset Configuration Section */}
+      <Container header={<Header variant="h2">Reset Configuration</Header>}>
+        <SpaceBetween size="s">
+          <Box color="text-body-secondary">
+            Reset your entire agent configuration to factory defaults. This will delete all custom sub-agents, Lambda tools (except Pathfinder), and restore the default supervisor configuration.
+          </Box>
+          <Button
+            variant="primary"
+            onClick={() => setShowResetModal(true)}
+            formAction="none"
+          >
+            <span style={{ color: 'white' }}>Reset Configuration</span>
+          </Button>
+        </SpaceBetween>
+      </Container>
+
+      {/* Reset Configuration Confirmation Modal */}
+      <Modal
+        visible={showResetModal}
+        onDismiss={() => setShowResetModal(false)}
+        header="Reset Configuration"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setShowResetModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleResetConfiguration}
+                loading={resetting}
+              >
+                Reset
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <Alert type="warning">
+          This will permanently delete all your custom sub-agents, Lambda tool functions (except
+          Pathfinder), Gateway targets, and reset the supervisor to defaults. This action cannot be undone.
+        </Alert>
+      </Modal>
     </SpaceBetween>
   );
 }
