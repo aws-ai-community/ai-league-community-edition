@@ -1010,6 +1010,10 @@ def handler(event, context):
       typeName: 'Query',
       fieldName: 'GetPresignedDomainUrl',
     });
+    agenticDataSource.createResolver('GetSchemaModelConfigResolver', {
+      typeName: 'Query',
+      fieldName: 'GetSchemaModelConfig',
+    });
 
     // Phase 2 Mutation resolvers (Agent Builder)
     agenticDataSource.createResolver('UpdateSupervisorAgentResolver', {
@@ -1047,6 +1051,10 @@ def handler(event, context):
     agenticDataSource.createResolver('ResetConfigurationResolver', {
       typeName: 'Mutation',
       fieldName: 'ResetConfiguration',
+    });
+    agenticDataSource.createResolver('SaveSchemaModelConfigResolver', {
+      typeName: 'Mutation',
+      fieldName: 'SaveSchemaModelConfig',
     });
     agenticDataSource.createResolver('CreateMemoryResolver', {
       typeName: 'Mutation',
