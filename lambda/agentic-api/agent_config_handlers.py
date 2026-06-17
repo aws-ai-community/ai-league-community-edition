@@ -2123,23 +2123,17 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
                 if gw_id:
                     try:
                         agentcore_ctrl = boto3.client("bedrock-agentcore-control")
-                        targets = agentcore_ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
-                        for target in targets.get("items", []):
-                            try:
-                                detail = agentcore_ctrl.get_gateway_target(
-                                    gatewayIdentifier=gw_id, targetId=target["targetId"]
-                                )
-                                tc = detail.get("targetConfiguration", {})
-                                mcp = tc.get("mcp", {})
-                                lam = mcp.get("lambda", {})
-                                if t.get("name") == function_name:
+                        targets_resp = agentcore_ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+                        for gw_target in targets_resp.get("items", []):
+                            if gw_target.get("name") == function_name:
+                                try:
                                     agentcore_ctrl.delete_gateway_target(
-                                        gatewayIdentifier=gw_id, targetId=target["targetId"]
+                                        gatewayIdentifier=gw_id, targetId=gw_target["targetId"]
                                     )
                                     logger.info("Reset: Deleted Gateway target for %s", function_name)
-                                    break
-                            except Exception:
-                                continue
+                                except Exception as del_err:
+                                    logger.warning("Reset: Failed to delete Gateway target %s: %s", gw_target["targetId"], del_err)
+                                break
                     except Exception as gw_err:
                         logger.warning("Reset: Failed to delete Gateway target for %s: %s", function_name, gw_err)
 
