@@ -538,6 +538,7 @@ def handler(event, context):
           'lambda:CreateFunction',
           'lambda:DeleteFunction',
           'lambda:GetFunction',
+          'lambda:GetFunctionConfiguration',
           'lambda:UpdateFunctionCode',
         ],
         resources: [`arn:aws:lambda:${this.region}:${this.account}:function:AgentCoreGatewayTool-*`],
