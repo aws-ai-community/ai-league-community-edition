@@ -674,6 +674,11 @@ def handler(event, context):
     });
     codeEditorSpace.node.addDependency(smUserProfile);
 
+    // Ensure CF deletes the space before the user profile (CfnResource-level dependency)
+    // The CustomResource Delete handler must run before UserProfile deletion
+    const spaceCfn = codeEditorSpace.node.defaultChild as cdk.CfnResource;
+    spaceCfn.addDependency(smUserProfile);
+
     // Export SageMaker identifiers to the agentic-api Lambda
     agenticLambda.addEnvironment('SAGEMAKER_DOMAIN_ID', smDomain.attrDomainId);
     agenticLambda.addEnvironment('SAGEMAKER_USER_PROFILE', 'ai-league-user');
