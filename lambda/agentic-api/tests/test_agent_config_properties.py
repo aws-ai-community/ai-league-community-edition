@@ -309,23 +309,31 @@ def test_property_5_lambda_tool_round_trip(name):
         role_arn = role_response["Role"]["Arn"]
 
         # Set up required env var for LAMBDA_TOOL_ROLE_ARN
+        old_role_arn = os.environ.get("LAMBDA_TOOL_ROLE_ARN")
         os.environ["LAMBDA_TOOL_ROLE_ARN"] = role_arn
 
-        # Create the Lambda tool (moto mocks the Lambda service)
-        arguments = {"name": name}
-        create_result = agent_config_handlers.handle_create_lambda_tool(arguments, event)
-        assert create_result.get("toolId") is not None, f"Create failed: {create_result}"
-        assert create_result.get("functionName") == f"AgentCoreGatewayTool-{name}"
+        try:
+            # Create the Lambda tool (moto mocks the Lambda service)
+            arguments = {"name": name}
+            create_result = agent_config_handlers.handle_create_lambda_tool(arguments, event)
+            assert create_result.get("toolId") is not None, f"Create failed: {create_result}"
+            assert create_result.get("functionName") == f"AgentCoreGatewayTool-{name}"
 
-        # List Lambda tools
-        list_result = agent_config_handlers.handle_list_lambda_tool({}, event)
+            # List Lambda tools
+            list_result = agent_config_handlers.handle_list_lambda_tool({}, event)
 
-        # Verify the created tool appears in the list with matching fields
-        matching_tools = [
-            tool for tool in list_result
-            if tool["name"] == name and tool["functionName"] == f"AgentCoreGatewayTool-{name}"
-        ]
-        assert len(matching_tools) >= 1, (
-            f"Expected tool with name='{name}' and functionName='AgentCoreGatewayTool-{name}' "
-            f"in list result. Got: {list_result}"
-        )
+            # Verify the created tool appears in the list with matching fields
+            matching_tools = [
+                tool for tool in list_result
+                if tool["name"] == name and tool["functionName"] == f"AgentCoreGatewayTool-{name}"
+            ]
+            assert len(matching_tools) >= 1, (
+                f"Expected tool with name='{name}' and functionName='AgentCoreGatewayTool-{name}' "
+                f"in list result. Got: {list_result}"
+            )
+        finally:
+            # Restore env var to avoid leaking state
+            if old_role_arn is None:
+                del os.environ["LAMBDA_TOOL_ROLE_ARN"]
+            else:
+                os.environ["LAMBDA_TOOL_ROLE_ARN"] = old_role_arn

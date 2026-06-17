@@ -186,7 +186,11 @@ export class CdkStack extends cdk.Stack {
     });
     lambdaToolRole.addToPolicy(new iam.PolicyStatement({
       actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/AgentCoreGatewayTool-*`],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:log-group:/aws/lambda/AgentCoreGatewayTool-*:*`],
+    }));
+    lambdaToolRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup'],
+      resources: [`arn:aws:logs:${this.region}:${this.account}:*`],
     }));
 
     // Pathfinder Tool Lambda — default BFS pathfinding tool for AgentCore
@@ -580,10 +584,6 @@ def handler(event, context):
     smExecRole.addToPolicy(new iam.PolicyStatement({
       actions: ['lambda:UpdateFunctionCode', 'lambda:GetFunction', 'lambda:InvokeFunction'],
       resources: [`arn:aws:lambda:*:*:function:AgentCoreGatewayTool-*`],
-    }));
-    smExecRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['iam:PassRole'],
-      resources: [smExecRole.roleArn],
     }));
 
     // SageMaker Domain

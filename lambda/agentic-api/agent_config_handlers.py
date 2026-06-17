@@ -736,8 +736,10 @@ def handle_create_lambda_tool(arguments: dict, event: dict) -> dict:
     2. Creates Lambda function with Python 3.12 runtime, hello-world handler, shared LambdaToolRole
     3. On Lambda creation failure: returns error immediately, no DynamoDB write
     4. Generates toolId (uuid4), writes DynamoDB record
-    5. Calls _auto_update_gateway_schema() for schema generation + Gateway target
-    6. Returns LambdaTool response dict
+    5. Returns LambdaTool response dict
+
+    Schema generation is NOT triggered here — EventBridge triggers it automatically
+    when the user uploads real code (UpdateFunctionCode event).
 
     Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 13.3
     """
@@ -1012,7 +1014,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
             source_code = source_code_truncated
 
             # 2. Load persisted schema generation model from DynamoDB
-            model_id = "us.amazon.nova-pro-v1:0"
+            model_id = "us.amazon.nova-2-lite-v1:0"
             if user_id:
                 try:
                     model_config_resp = agent_configurations_table.get_item(
@@ -1332,7 +1334,7 @@ def handle_delete_lambda_tool(arguments: dict, event: dict) -> dict:
                             mcp_config = target_config.get("mcp", {})
                             lambda_config = mcp_config.get("lambda", mcp_config.get("Lambda", {}))
                             lambda_arn = lambda_config.get("lambdaArn", lambda_config.get("LambdaArn", ""))
-                            if t.get("name") == function_name:
+                            if target.get("name") == function_name:
                                 target_id_to_delete = target["targetId"]
                                 break
                         except Exception as detail_err:
