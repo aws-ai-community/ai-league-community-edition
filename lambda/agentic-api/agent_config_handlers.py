@@ -851,6 +851,103 @@ def lambda_handler(event, context):
     }
 
 
+def _try_parse_docstring_schema(source_code: str) -> list:
+    """Parse structured docstrings to extract MCP tool schemas without using an LLM.
+
+    Looks for patterns like:
+        Tool: route
+        Description: Route calculator for known maps.
+        Parameters:
+            mode             (required) - routing mode: max_score, time_budget, sprint, swift
+            duration         (optional) - time limit in seconds (default: 230)
+
+    Returns a list of schema dicts, or empty list if no structured docstring found.
+    """
+    import re as _re
+
+    # Find the lambda_handler docstring
+    docstring_match = _re.search(
+        r'def lambda_handler\s*\([^)]*\):\s*(?:#[^\n]*)?\s*"""(.*?)"""',
+        source_code, _re.DOTALL
+    )
+    if not docstring_match:
+        # Try alternate: triple single quotes
+        docstring_match = _re.search(
+            r"def lambda_handler\s*\([^)]*\):\s*(?:#[^\n]*)?\s*'''(.*?)'''",
+            source_code, _re.DOTALL
+        )
+    if not docstring_match:
+        return []
+
+    docstring = docstring_match.group(1)
+
+    # Look for "Tool:" sections
+    tool_sections = _re.split(r'---+\s*\n\s*Tool:\s*', docstring)
+    if len(tool_sections) < 2:
+        # No "Tool:" headers found — not a structured docstring
+        return []
+
+    schemas = []
+    for section in tool_sections[1:]:  # Skip the preamble before first "---"
+        lines = section.strip().split('\n')
+        tool_name = lines[0].strip()
+
+        # Extract description
+        desc_match = _re.search(r'Description:\s*(.+)', section)
+        description = desc_match.group(1).strip() if desc_match else f"Tool: {tool_name}"
+
+        # Extract parameters
+        params_match = _re.search(r'Parameters:\s*\n((?:\s+\S.*\n?)*)', section)
+        properties = {}
+        required = []
+
+        if params_match:
+            param_lines = params_match.group(1).split('\n')
+            for line in param_lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Pattern: param_name  (required|optional) - description (default: value)
+                param_match = _re.match(
+                    r'(\w+)\s+\((required|optional)\)\s*-\s*(.+)', line
+                )
+                if param_match:
+                    param_name = param_match.group(1)
+                    is_required = param_match.group(2) == 'required'
+                    param_desc = param_match.group(3).strip()
+
+                    # Determine type from description hints
+                    param_type = "string"
+                    if any(hint in param_desc.lower() for hint in ['seconds', 'time limit', 'number of']):
+                        param_type = "number"
+
+                    properties[param_name] = {
+                        "type": param_type,
+                        "description": param_desc,
+                    }
+
+                    if is_required:
+                        required.append(param_name)
+
+        if not properties:
+            continue
+
+        schema = {
+            "name": tool_name,
+            "description": description,
+            "inputSchema": {
+                "type": "object",
+                "properties": properties,
+            },
+        }
+        if required:
+            schema["inputSchema"]["required"] = required
+
+        schemas.append(schema)
+
+    return schemas
+
+
 def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None:
     """Auto-generate MCP tool schema from Lambda code using Bedrock and update the Gateway target.
 
@@ -900,87 +997,145 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
             return
 
         # Truncate to avoid token limits (keep first 8000 chars)
-        source_code = source_code[:8000]
+        source_code_truncated = source_code[:8000]
 
-        # 2. Load persisted schema generation model from DynamoDB
-        model_id = "us.amazon.nova-2-lite-v1:0"
-        if user_id:
-            try:
-                model_config_resp = agent_configurations_table.get_item(
-                    Key={"userId": user_id, "sk": "SCHEMA_MODEL_CONFIG"}
-                )
-                model_config_item = model_config_resp.get("Item")
-                if model_config_item and model_config_item.get("modelId"):
-                    model_id = model_config_item["modelId"]
-            except Exception as e:
-                logger.warning("Failed to load schema model config for user %s: %s", user_id, e)
+        # --- DOCSTRING-FIRST APPROACH ---
+        # If the Lambda has a structured docstring with "Tool:" sections, parse directly
+        # without using the LLM. Only fall back to LLM if no structured docstring found.
+        valid_schemas = _try_parse_docstring_schema(source_code)
+        if valid_schemas:
+            logger.info("Parsed %d schema(s) from docstring for %s: %s",
+                        len(valid_schemas), function_name, json.dumps([s["name"] for s in valid_schemas]))
+        else:
+            # --- LLM FALLBACK ---
+            # No structured docstring found, use LLM to generate schema
+            source_code = source_code_truncated
 
-        # 3. Generate schema using Bedrock Converse
-        bedrock = boto3.client("bedrock-runtime")
-        prompt = f"""Analyze this Python Lambda function and generate an MCP tool schema as JSON.
+            # 2. Load persisted schema generation model from DynamoDB
+            model_id = "us.amazon.nova-pro-v1:0"
+            if user_id:
+                try:
+                    model_config_resp = agent_configurations_table.get_item(
+                        Key={"userId": user_id, "sk": "SCHEMA_MODEL_CONFIG"}
+                    )
+                    model_config_item = model_config_resp.get("Item")
+                    if model_config_item and model_config_item.get("modelId"):
+                        model_id = model_config_item["modelId"]
+                except Exception as e:
+                    logger.warning("Failed to load schema model config for user %s: %s", user_id, e)
 
-The schema must have exactly this structure:
+            # 3. Generate schema using Bedrock Converse
+            bedrock = boto3.client("bedrock-runtime")
+            prompt = f"""Analyze this Python Lambda function and generate MCP tool schema(s) as a JSON array.
+
+PRIORITY: If the function has a structured docstring with "Tool:" headers and "Parameters:" sections,
+you MUST use those EXACTLY as the source of truth for tool names, descriptions, and parameter names.
+Copy the tool name, description, and parameter names verbatim from the docstring.
+
+If there is NO structured docstring, fall back to analyzing the code to determine parameters.
+
+Output a JSON array of tool objects. Each tool object has this structure:
 {{
-  "name": "<short_descriptive_tool_name>",
-  "description": "<one-line description of what the tool does, mentioning key capabilities>",
+  "name": "<tool_name_from_docstring_or_short_verb>",
+  "description": "<description_from_docstring_or_one_line_summary>",
   "inputSchema": {{
     "type": "object",
     "properties": {{
-      "<param_name>": {{"type": "<json_type>", "description": "<what this param does>", "default": "<default_value_if_any>"}}
+      "<param_name>": {{"type": "<json_type>", "description": "<description_from_docstring_or_code>"}}
     }},
-    "required": ["<only_truly_required_params>"]
+    "required": ["<params_marked_required_in_docstring_or_no_default_in_code>"]
   }}
 }}
 
 Rules:
-- The "name" should be a short descriptive verb/noun (e.g. "route", "scan", "fetch_url", "calc") derived from the tool's PURPOSE, not the function name
-- Extract parameter names from how the handler reads them (body.get('param_name'), event.get('param_name'), etc.)
-- Include "default" values where the code specifies them (e.g. body.get('mode', 'time_budget') means default is "time_budget")
-- Use the docstring and comments to determine descriptions
-- Only include parameters the function actually reads from the input body
-- Do NOT include internal/computed parameters or framework params like 'body', 'event', 'context'
-- "required" should only list params that have NO default and would cause an error if missing
-- Output ONLY the JSON object, no markdown, no explanation, no code fences
+- If the docstring defines multiple tools (e.g. "Tool: route" and "Tool: route_map"), output one schema per tool
+- Use EXACT parameter names from the docstring (e.g. if docstring says "ctx" use "ctx", not "context" or "game_map")
+- Use EXACT tool names from the docstring (e.g. if docstring says "Tool: route" use "route")
+- Copy descriptions from the docstring Parameters section
+- For parameters marked "(required)" in the docstring, include them in "required" array
+- For parameters marked "(optional)" with defaults noted, do NOT include in "required"
+- All property types should be "string" unless clearly numeric from context (e.g. "time limit in seconds" → "number")
+- Do NOT invent parameters not in the docstring or code
+- Do NOT include framework params like 'body', 'event', 'context'
+- Output ONLY the JSON array, no markdown, no explanation, no code fences
+- If only one tool, still output as a single-element array: [{{...}}]
 
 Lambda source code:
 ```python
 {source_code}
 ```"""
 
-        converse_resp = bedrock.converse(
-            modelId=model_id,
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
-        )
+            converse_resp = bedrock.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": prompt}]}],
+                inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
+            )
 
-        response_text = ""
-        for block in converse_resp.get("output", {}).get("message", {}).get("content", []):
-            if "text" in block:
-                response_text += block["text"]
+            response_text = ""
+            for block in converse_resp.get("output", {}).get("message", {}).get("content", []):
+                if "text" in block:
+                    response_text += block["text"]
 
-        # 4. Parse the JSON response
-        json_match = _re.search(r'\{[\s\S]*\}', response_text)
-        if not json_match:
-            logger.warning("No JSON found in Bedrock schema response for %s", function_name)
-            return
+            logger.info("Raw LLM response for %s (first 1000 chars): %s", function_name, response_text[:1000])
 
-        try:
-            schema = json.loads(json_match.group())
-        except json.JSONDecodeError as e:
-            logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
-            return
+            # Strip markdown code fences if present
+            response_text = _re.sub(r'```(?:json)?\s*', '', response_text).strip()
+            response_text = _re.sub(r'```\s*$', '', response_text).strip()
 
-        # Validate schema has required fields
-        if not isinstance(schema, dict):
-            logger.warning("Schema response is not a dict for %s", function_name)
-            return
-        if not schema.get("name") or not schema.get("description") or not schema.get("inputSchema"):
-            logger.warning("Schema missing required fields (name/description/inputSchema) for %s", function_name)
-            return
+            # 4. Parse the JSON response (now expecting an array)
+            # Try array first, then single object for backward compat
+            json_match = _re.search(r'\[[\s\S]*\]', response_text)
+            if not json_match:
+                # Fallback: try single object
+                json_match = _re.search(r'\{[\s\S]*\}', response_text)
+                if not json_match:
+                    logger.warning("No JSON found in Bedrock schema response for %s", function_name)
+                    return
+                try:
+                    single_schema = json.loads(json_match.group())
+                    schemas = [single_schema]
+                except json.JSONDecodeError as e:
+                    logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
+                    return
+            else:
+                try:
+                    schemas = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    # Array parse failed, try single object
+                    json_match = _re.search(r'\{[\s\S]*\}', response_text)
+                    if not json_match:
+                        logger.warning("No valid JSON in Bedrock schema response for %s", function_name)
+                        return
+                    try:
+                        single_schema = json.loads(json_match.group())
+                        schemas = [single_schema]
+                    except json.JSONDecodeError as e:
+                        logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
+                        return
 
-        logger.info("Generated schema for %s: %s", function_name, json.dumps(schema)[:500])
+            if not isinstance(schemas, list):
+                schemas = [schemas]
 
-        # Sanitize schema — remove fields not supported by Gateway API
+            # Validate each schema has required fields
+            valid_schemas = []
+            for schema in schemas:
+                if not isinstance(schema, dict):
+                    continue
+                if not schema.get("name") or not schema.get("description") or not schema.get("inputSchema"):
+                    logger.warning("Schema missing required fields (name/description/inputSchema) for %s: %s", function_name, schema.get("name", "?"))
+                    continue
+                valid_schemas.append(schema)
+
+            if not valid_schemas:
+                logger.warning("No valid schemas generated for %s", function_name)
+                return
+
+            logger.info("Generated %d schema(s) for %s: %s", len(valid_schemas), function_name,
+                        json.dumps([s["name"] for s in valid_schemas]))
+            for schema in valid_schemas:
+                logger.info("Schema %s: %s", schema["name"], json.dumps(schema)[:500])
+
+        # Sanitize schemas — remove fields not supported by Gateway API
         # Gateway only allows: type, properties, required, items, description in property defs
         ALLOWED_PROP_FIELDS = {"type", "properties", "required", "items", "description"}
 
@@ -998,8 +1153,9 @@ Lambda source code:
                     sanitized[key] = val
             return sanitized
 
-        if "inputSchema" in schema and "properties" in schema["inputSchema"]:
-            schema["inputSchema"]["properties"] = _sanitize_props(schema["inputSchema"]["properties"])
+        for schema in valid_schemas:
+            if "inputSchema" in schema and "properties" in schema["inputSchema"]:
+                schema["inputSchema"]["properties"] = _sanitize_props(schema["inputSchema"]["properties"])
 
         # 5. Find and update/create the Gateway target
         agentcore_ctrl = boto3.client("bedrock-agentcore-control")
@@ -1038,7 +1194,7 @@ Lambda source code:
                             "lambda": {
                                 "lambdaArn": lambda_arn,
                                 "toolSchema": {
-                                    "inlinePayload": [schema],
+                                    "inlinePayload": valid_schemas,
                                 },
                             },
                         },
@@ -1062,7 +1218,7 @@ Lambda source code:
                     "lambda": {
                         "lambdaArn": target_lambda_arn,
                         "toolSchema": {
-                            "inlinePayload": [schema],
+                            "inlinePayload": valid_schemas,
                         },
                     },
                 },
