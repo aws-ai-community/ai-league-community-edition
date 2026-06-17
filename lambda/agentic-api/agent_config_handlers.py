@@ -837,8 +837,8 @@ def lambda_handler(event, context):
             logger.warning("Failed to clean up Lambda function %s after DynamoDB error", function_name)
         return {"success": False, "statusCode": 500, "message": f"Failed to register Lambda tool: {e}"}
 
-    # Auto-generate schema and create Gateway target
-    _auto_update_gateway_schema(function_name, user_id=user_id)
+    # Skip schema generation on initial creation — the Lambda has hello-world template code.
+    # EventBridge will trigger schema regeneration when the user uploads real code.
 
     return {
         "toolId": tool_id,
@@ -1185,25 +1185,42 @@ Lambda source code:
                 fn_config = lambda_client.get_function_configuration(FunctionName=function_name)
                 lambda_arn = fn_config["FunctionArn"]
 
-                agentcore_ctrl.create_gateway_target(
-                    gatewayIdentifier=gw_id,
-                    name=function_name,
-                    description=f"Lambda tool: {function_name}",
-                    targetConfiguration={
-                        "mcp": {
-                            "lambda": {
-                                "lambdaArn": lambda_arn,
-                                "toolSchema": {
-                                    "inlinePayload": valid_schemas,
+                # Retry up to 3 times with backoff for "Lambda not ready" race condition
+                import time as _time
+                last_err = None
+                for attempt in range(3):
+                    try:
+                        agentcore_ctrl.create_gateway_target(
+                            gatewayIdentifier=gw_id,
+                            name=function_name,
+                            description=f"Lambda tool: {function_name}",
+                            targetConfiguration={
+                                "mcp": {
+                                    "lambda": {
+                                        "lambdaArn": lambda_arn,
+                                        "toolSchema": {
+                                            "inlinePayload": valid_schemas,
+                                        },
+                                    },
                                 },
                             },
-                        },
-                    },
-                    credentialProviderConfigurations=[
-                        {"credentialProviderType": "GATEWAY_IAM_ROLE"}
-                    ],
-                )
-                logger.info("Created new Gateway target for %s", function_name)
+                            credentialProviderConfigurations=[
+                                {"credentialProviderType": "GATEWAY_IAM_ROLE"}
+                            ],
+                        )
+                        logger.info("Created new Gateway target for %s", function_name)
+                        last_err = None
+                        break
+                    except Exception as create_err:
+                        last_err = create_err
+                        err_msg = str(create_err)
+                        if "not ready" in err_msg or "resource conflict" in err_msg.lower():
+                            logger.info("Lambda not ready, retrying in %ds (attempt %d/3)", (attempt + 1) * 2, attempt + 1)
+                            _time.sleep((attempt + 1) * 2)
+                        else:
+                            break
+                if last_err:
+                    logger.error("Failed to create Gateway target for %s: %s", function_name, traceback.format_exc())
             except Exception:
                 logger.error("Failed to create Gateway target for %s: %s", function_name, traceback.format_exc())
             return
