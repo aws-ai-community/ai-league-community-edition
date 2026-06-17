@@ -1056,6 +1056,7 @@ Lambda source code:
         agentcore_ctrl.update_gateway_target(
             gatewayIdentifier=gw_id,
             targetId=target_id,
+            name=function_name,
             targetConfiguration={
                 "mcp": {
                     "lambda": {
