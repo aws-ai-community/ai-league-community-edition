@@ -1382,6 +1382,135 @@ def handler(event, context):
       },
     });
 
+    // ========================================================================
+    // Cleanup Custom Resource — runs on cdk destroy to remove user-created resources
+    // ========================================================================
+
+    const cleanupFn = new lambda.Function(this, 'CleanupFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 256,
+      environment: {
+        GATEWAY_URL: gatewayUrl.toString(),
+        AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
+      },
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import os
+import re
+
+def handler(event, context):
+    """On Delete: clean up user-created Lambdas, Gateway targets, Memories, Guardrails."""
+    try:
+        if event['RequestType'] != 'Delete':
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return
+
+        # 1. Delete all AgentCoreGatewayTool-* Lambdas (except Pathfinder, already CDK-managed)
+        lambda_client = boto3.client('lambda')
+        paginator = lambda_client.get_paginator('list_functions')
+        for page in paginator.paginate():
+            for fn in page['Functions']:
+                name = fn['FunctionName']
+                if name.startswith('AgentCoreGatewayTool-') and name != 'AgentCoreGatewayTool-Pathfinder':
+                    try:
+                        lambda_client.delete_function(FunctionName=name)
+                        print(f'Deleted Lambda: {name}')
+                    except Exception as e:
+                        print(f'Failed to delete Lambda {name}: {e}')
+
+        # 2. Delete non-CDK Gateway targets
+        gateway_url = os.environ.get('GATEWAY_URL', '')
+        gw_match = re.search(r'https://([^.]+)\\.gateway', gateway_url)
+        if gw_match:
+            gw_id = gw_match.group(1)
+            ctrl = boto3.client('bedrock-agentcore-control')
+            try:
+                targets = ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
+                for t in targets.get('items', []):
+                    # Skip CDK-managed Pathfinder target
+                    if t.get('name') == 'AgentCoreGatewayTool-Pathfinder':
+                        continue
+                    try:
+                        ctrl.delete_gateway_target(gatewayIdentifier=gw_id, targetId=t['targetId'])
+                        print(f'Deleted Gateway target: {t.get("name", t["targetId"])}')
+                    except Exception as e:
+                        print(f'Failed to delete Gateway target {t["targetId"]}: {e}')
+            except Exception as e:
+                print(f'Failed to list Gateway targets: {e}')
+
+        # 3. Delete all AgentCore Memories
+        try:
+            ctrl = boto3.client('bedrock-agentcore-control')
+            memories = ctrl.list_memories()
+            for m in memories.get('memories', memories.get('items', [])):
+                mem_id = m.get('id', '')
+                if mem_id:
+                    try:
+                        ctrl.delete_memory(memoryId=mem_id)
+                        print(f'Deleted Memory: {mem_id}')
+                    except Exception as e:
+                        print(f'Failed to delete Memory {mem_id}: {e}')
+        except Exception as e:
+            print(f'Failed to list Memories: {e}')
+
+        # 4. Delete all Bedrock Guardrails (community edition creates them with prefix)
+        try:
+            bedrock = boto3.client('bedrock')
+            guardrails = bedrock.list_guardrails()
+            for g in guardrails.get('guardrails', []):
+                gr_id = g.get('id', '')
+                if gr_id:
+                    try:
+                        bedrock.delete_guardrail(guardrailIdentifier=gr_id)
+                        print(f'Deleted Guardrail: {gr_id}')
+                    except Exception as e:
+                        print(f'Failed to delete Guardrail {gr_id}: {e}')
+        except Exception as e:
+            print(f'Failed to list Guardrails: {e}')
+
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Cleanup error: {e}')
+        # Don't fail the stack deletion on cleanup errors
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+
+    // Grant cleanup Lambda permissions for all resource types it needs to delete
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['lambda:ListFunctions', 'lambda:DeleteFunction'],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'bedrock-agentcore:ListGatewayTargets', 'bedrock-agentcore:DeleteGatewayTarget',
+        'bedrock-agentcore:ListMemories', 'bedrock-agentcore:DeleteMemory',
+        'bedrock-agentcore-control:ListGatewayTargets', 'bedrock-agentcore-control:DeleteGatewayTarget',
+        'bedrock-agentcore-control:ListMemories', 'bedrock-agentcore-control:DeleteMemory',
+      ],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:ListGuardrails', 'bedrock:DeleteGuardrail'],
+      resources: ['*'],
+    }));
+    agentConfigurationsTable.grantReadData(cleanupFn);
+
+    const cleanupProvider = new cr.Provider(this, 'CleanupProvider', {
+      onEventHandler: cleanupFn,
+    });
+
+    new cdk.CustomResource(this, 'CleanupResource', {
+      serviceToken: cleanupProvider.serviceToken,
+      properties: {
+        // Trigger property ensures the resource exists but only runs handler on Delete
+        Version: '1',
+      },
+    });
+
     // Stack outputs
     new cdk.CfnOutput(this, 'UserInterfaceDomainName', {
       value: cloudFrontDomain,
