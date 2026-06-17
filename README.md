@@ -254,7 +254,6 @@ This removes all deployed resources including the Cognito User Pool, DynamoDB ta
 
 ## Roadmap
 
-- **Phase 3**: Tools & Config — Lambda function creation via SageMaker Code Editor, advanced guardrail templates
 - **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
 ## License
