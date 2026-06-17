@@ -1421,7 +1421,7 @@ def handler(event, context):
                     except Exception as e:
                         print(f'Failed to delete Lambda {name}: {e}')
 
-        # 2. Delete non-CDK Gateway targets
+        # 2. Delete non-CDK Gateway targets (user-created tools only)
         gateway_url = os.environ.get('GATEWAY_URL', '')
         gw_match = re.search(r'https://([^.]+)\\.gateway', gateway_url)
         if gw_match:
@@ -1430,7 +1430,7 @@ def handler(event, context):
             try:
                 targets = ctrl.list_gateway_targets(gatewayIdentifier=gw_id)
                 for t in targets.get('items', []):
-                    # Skip CDK-managed Pathfinder target
+                    # Skip CDK-managed Pathfinder target (CF handles it)
                     if t.get('name') == 'AgentCoreGatewayTool-Pathfinder':
                         continue
                     try:
@@ -1503,13 +1503,21 @@ def handler(event, context):
       onEventHandler: cleanupFn,
     });
 
-    new cdk.CustomResource(this, 'CleanupResource', {
+    const cleanupResource = new cdk.CustomResource(this, 'CleanupResource', {
       serviceToken: cleanupProvider.serviceToken,
       properties: {
         // Trigger property ensures the resource exists but only runs handler on Delete
         Version: '1',
       },
     });
+
+    // Dependency chain for clean destroy:
+    // CleanupResource depends on Gateway → on destroy, CleanupResource is deleted first
+    // (triggering the cleanup handler while Gateway still exists), then PathfindingGatewayTarget
+    // is deleted, then Gateway is deleted with no targets remaining.
+    const cleanupCfn = cleanupResource.node.defaultChild as cdk.CfnResource;
+    cleanupCfn.addDependency(gateway);
+    cleanupCfn.addDependency(pathfindingTarget);
 
     // Stack outputs
     new cdk.CfnOutput(this, 'UserInterfaceDomainName', {
