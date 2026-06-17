@@ -65,7 +65,7 @@ DEFAULT_SUPERVISOR_CONFIG = {
         "- For pathfinding: Return ONLY the path array like [\"right\",\"down\",\"left\"]\n"
         "- No explanations, no thinking tags, no other text"
     ),
-    "modelId": "amazon.nova-lite-v1:0",
+    "modelId": "us.amazon.nova-2-lite-v1:0",
     "subAgents": [],
     "lambdaTools": [],
     "memoryTool": None,
@@ -88,7 +88,7 @@ DEFAULT_PATHFINDER_SUBAGENT = {
         "3. NO explanations, NO text, just the JSON array\n\n"
         "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
     ),
-    "modelId": "amazon.nova-lite-v1:0",
+    "modelId": "us.amazon.nova-2-lite-v1:0",
     "lambdaTools": ["pathfinder-default"],
 }
 
@@ -519,7 +519,7 @@ def handle_create_sub_agent(arguments: dict, event: dict) -> dict:
 
     name = arguments.get("name", "")
     system_prompt = arguments.get("systemPrompt", "")
-    model_id = arguments.get("modelId", "amazon.nova-lite-v1:0")
+    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
     lambda_tools = arguments.get("lambdaTools", [])
 
     item = {
@@ -857,7 +857,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
     1. Fetches the Lambda function code via lambda:GetFunction + download ZIP
     2. Extracts .py files, truncates combined source to 8000 characters
     3. Loads persisted Schema_Generation_Model from DynamoDB (SCHEMA_MODEL_CONFIG SK)
-       - If not set, defaults to 'amazon.nova-lite-v1:0'
+       - If not set, defaults to 'us.amazon.nova-2-lite-v1:0'
     4. Calls Bedrock Converse with configured model and schema generation prompt
     5. Parses JSON response into Tool_Schema (MCP-compatible: name, description, inputSchema)
     6. Finds or creates Gateway target with the schema
@@ -903,7 +903,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
         source_code = source_code[:8000]
 
         # 2. Load persisted schema generation model from DynamoDB
-        model_id = "amazon.nova-lite-v1:0"
+        model_id = "us.amazon.nova-2-lite-v1:0"
         if user_id:
             try:
                 model_config_resp = agent_configurations_table.get_item(
@@ -979,6 +979,27 @@ Lambda source code:
             return
 
         logger.info("Generated schema for %s: %s", function_name, json.dumps(schema)[:500])
+
+        # Sanitize schema — remove fields not supported by Gateway API
+        # Gateway only allows: type, properties, required, items, description in property defs
+        ALLOWED_PROP_FIELDS = {"type", "properties", "required", "items", "description"}
+
+        def _sanitize_props(props):
+            if not isinstance(props, dict):
+                return props
+            sanitized = {}
+            for key, val in props.items():
+                if isinstance(val, dict):
+                    sanitized[key] = {k: v for k, v in val.items() if k in ALLOWED_PROP_FIELDS}
+                    # Recurse into nested properties
+                    if "properties" in sanitized[key]:
+                        sanitized[key]["properties"] = _sanitize_props(sanitized[key]["properties"])
+                else:
+                    sanitized[key] = val
+            return sanitized
+
+        if "inputSchema" in schema and "properties" in schema["inputSchema"]:
+            schema["inputSchema"]["properties"] = _sanitize_props(schema["inputSchema"]["properties"])
 
         # 5. Find and update/create the Gateway target
         agentcore_ctrl = boto3.client("bedrock-agentcore-control")
@@ -1808,7 +1829,7 @@ def handle_save_schema_model_config(arguments: dict, event: dict) -> dict:
     user_id = _get_user_id(event)
     now = _now_iso()
 
-    model_id = arguments.get("modelId", "amazon.nova-lite-v1:0")
+    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
 
     item = {
         "userId": user_id,
@@ -1829,7 +1850,7 @@ def handle_save_schema_model_config(arguments: dict, event: dict) -> dict:
 def handle_get_schema_model_config(arguments: dict, event: dict) -> dict:
     """Retrieve the user's chosen schema generation model from DynamoDB.
 
-    Returns the persisted modelId, or the default (amazon.nova-lite-v1:0) if not set.
+    Returns the persisted modelId, or the default (us.amazon.nova-2-lite-v1:0) if not set.
 
     Requirements: 8.2
     """
@@ -1841,13 +1862,13 @@ def handle_get_schema_model_config(arguments: dict, event: dict) -> dict:
         )
     except Exception as e:
         logger.error("Error loading schema model config for user %s: %s", user_id, e)
-        return {"modelId": "amazon.nova-lite-v1:0"}
+        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
 
     item = response.get("Item")
     if not item:
-        return {"modelId": "amazon.nova-lite-v1:0"}
+        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
 
-    return {"modelId": item.get("modelId", "amazon.nova-lite-v1:0")}
+    return {"modelId": item.get("modelId", "us.amazon.nova-2-lite-v1:0")}
 
 
 # ---------------------------------------------------------------------------
