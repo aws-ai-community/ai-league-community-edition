@@ -354,10 +354,7 @@ def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
                 targets.append(item["functionName"])
         except Exception:
             pass
-    # Always include the CDK-provisioned Pathfinder target as fallback
-    if not any("Pathfinder" in t for t in targets):
-        targets.append("AgentCoreGatewayTool-Pathfinder")
-    return targets
+    return targets if targets else ["AgentCoreGatewayTool-Pathfinder"]
 
 
 def _handle_agentcore_flow(
