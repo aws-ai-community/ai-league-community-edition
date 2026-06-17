@@ -1015,7 +1015,7 @@ Lambda source code:
                 tc = detail.get("targetConfiguration", {})
                 mcp = tc.get("mcp", {})
                 lam = mcp.get("lambda", {})
-                if function_name in lam.get("lambdaArn", ""):
+                if t.get("name") == function_name:
                     target_id = t["targetId"]
                     target_lambda_arn = lam["lambdaArn"]
                     break
@@ -1159,7 +1159,7 @@ def handle_delete_lambda_tool(arguments: dict, event: dict) -> dict:
                             mcp_config = target_config.get("mcp", {})
                             lambda_config = mcp_config.get("lambda", mcp_config.get("Lambda", {}))
                             lambda_arn = lambda_config.get("lambdaArn", lambda_config.get("LambdaArn", ""))
-                            if function_name in lambda_arn:
+                            if t.get("name") == function_name:
                                 target_id_to_delete = target["targetId"]
                                 break
                         except Exception as detail_err:
@@ -1959,7 +1959,7 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
                                 tc = detail.get("targetConfiguration", {})
                                 mcp = tc.get("mcp", {})
                                 lam = mcp.get("lambda", {})
-                                if function_name in lam.get("lambdaArn", ""):
+                                if t.get("name") == function_name:
                                     agentcore_ctrl.delete_gateway_target(
                                         gatewayIdentifier=gw_id, targetId=target["targetId"]
                                     )
