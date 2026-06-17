@@ -1394,6 +1394,7 @@ def handler(event, context):
       environment: {
         GATEWAY_URL: gatewayUrl.toString(),
         AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
+        VPC_ID: smVpc.vpcId,
       },
       code: lambda.Code.fromInline(`
 import boto3
@@ -1471,43 +1472,80 @@ def handler(event, context):
         except Exception as e:
             print(f'Failed to list Guardrails: {e}')
 
-        # 5. Delete SageMaker-created EFS file systems (blocks VPC deletion)
-        # SageMaker domain auto-creates EFS for home directories. Must delete
-        # mount targets first, then file systems, before VPC can be removed.
+        # 5. Delete SageMaker-created EFS and security groups in our VPC (blocks VPC deletion)
+        # SageMaker domain auto-creates EFS for home directories and security groups.
+        # Must delete mount targets, then EFS, then non-default SGs in the VPC.
+        # Scoped to our VPC only (passed via environment variable).
         try:
             import time
+            ec2 = boto3.client('ec2')
             efs = boto3.client('efs')
-            fs_list = efs.describe_file_systems()
-            for fs in fs_list.get('FileSystems', []):
-                fs_id = fs['FileSystemId']
-                # Check if tagged by SageMaker or in our VPC
-                tags = efs.describe_tags(FileSystemId=fs_id).get('Tags', [])
-                is_sagemaker = any('sagemaker' in t.get('Value', '').lower() or 'ManagedByAmazonSageMakerResource' in t.get('Key', '') for t in tags)
-                if not is_sagemaker:
-                    continue
-                print(f'Found SageMaker EFS: {fs_id}')
-                # Delete mount targets first
-                mts = efs.describe_mount_targets(FileSystemId=fs_id)
-                for mt in mts.get('MountTargets', []):
+            vpc_id = os.environ.get('VPC_ID', '')
+            if not vpc_id:
+                print('No VPC_ID configured, skipping EFS/SG cleanup')
+            else:
+                # Delete EFS mount targets and file systems in our VPC
+                fs_list = efs.describe_file_systems()
+                for fs in fs_list.get('FileSystems', []):
+                    fs_id = fs['FileSystemId']
+                    # Check mount targets — only process if they're in our VPC
+                    mts = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
+                    in_our_vpc = any(mt.get('VpcId') == vpc_id for mt in mts)
+                    if not in_our_vpc and mts:
+                        continue
+                    if not mts:
+                        # No mount targets — check tags to see if SageMaker created it
+                        try:
+                            tags = efs.describe_tags(FileSystemId=fs_id).get('Tags', [])
+                            is_sagemaker = any('ManagedByAmazonSageMakerResource' in t.get('Key', '') for t in tags)
+                            if not is_sagemaker:
+                                continue
+                        except Exception:
+                            continue
+                    print(f'Found EFS in our VPC: {fs_id}')
+                    for mt in mts:
+                        try:
+                            efs.delete_mount_target(MountTargetId=mt['MountTargetId'])
+                            print(f'  Deleted mount target: {mt["MountTargetId"]}')
+                        except Exception as e:
+                            print(f'  Failed to delete mount target: {e}')
+                    # Wait for mount targets to be deleted
+                    for _ in range(30):
+                        remaining = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
+                        if not remaining:
+                            break
+                        time.sleep(2)
                     try:
-                        efs.delete_mount_target(MountTargetId=mt['MountTargetId'])
-                        print(f'  Deleted mount target: {mt["MountTargetId"]}')
+                        efs.delete_file_system(FileSystemId=fs_id)
+                        print(f'  Deleted EFS: {fs_id}')
                     except Exception as e:
-                        print(f'  Failed to delete mount target: {e}')
-                # Wait for mount targets to be deleted
-                for _ in range(30):
-                    remaining = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
-                    if not remaining:
-                        break
-                    time.sleep(2)
-                # Delete the file system
-                try:
-                    efs.delete_file_system(FileSystemId=fs_id)
-                    print(f'  Deleted EFS: {fs_id}')
-                except Exception as e:
-                    print(f'  Failed to delete EFS {fs_id}: {e}')
+                        print(f'  Failed to delete EFS {fs_id}: {e}')
+
+                # Delete non-default security groups in our VPC
+                sgs = ec2.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+                for sg in sgs.get('SecurityGroups', []):
+                    if sg['GroupName'] == 'default':
+                        continue
+                    sg_id = sg['GroupId']
+                    # Remove all ingress/egress rules first (handles cross-SG refs)
+                    try:
+                        if sg.get('IpPermissions'):
+                            ec2.revoke_security_group_ingress(GroupId=sg_id, IpPermissions=sg['IpPermissions'])
+                        if sg.get('IpPermissionsEgress'):
+                            ec2.revoke_security_group_egress(GroupId=sg_id, IpPermissions=sg['IpPermissionsEgress'])
+                    except Exception:
+                        pass
+                # Now delete them (second pass after all rules removed)
+                for sg in sgs.get('SecurityGroups', []):
+                    if sg['GroupName'] == 'default':
+                        continue
+                    try:
+                        ec2.delete_security_group(GroupId=sg['GroupId'])
+                        print(f'  Deleted SG: {sg["GroupId"]} ({sg["GroupName"]})')
+                    except Exception as e:
+                        print(f'  Failed to delete SG {sg["GroupId"]}: {e}')
         except Exception as e:
-            print(f'Failed to clean up EFS: {e}')
+            print(f'Failed to clean up EFS/SGs: {e}')
 
         cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
@@ -1540,6 +1578,13 @@ def handler(event, context):
         'elasticfilesystem:DescribeFileSystems', 'elasticfilesystem:DescribeTags',
         'elasticfilesystem:DescribeMountTargets', 'elasticfilesystem:DeleteMountTarget',
         'elasticfilesystem:DeleteFileSystem',
+      ],
+      resources: ['*'],
+    }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'ec2:DescribeSecurityGroups', 'ec2:DeleteSecurityGroup',
+        'ec2:RevokeSecurityGroupIngress', 'ec2:RevokeSecurityGroupEgress',
       ],
       resources: ['*'],
     }));
