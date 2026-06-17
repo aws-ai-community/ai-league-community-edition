@@ -343,7 +343,8 @@ def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
     The function name (e.g. 'AgentCoreGatewayTool-P') is used as a prefix to match
     gateway tools (e.g. 'AgentCoreGatewayTool-P___route').
 
-    Appends '___' separator to prevent prefix collisions (e.g. 'P' matching 'Pathfinder').
+    The container runtime appends '___' separator in startswith checks to prevent
+    prefix collisions (e.g. 'P' matching 'Pathfinder').
     """
     targets = []
     for tool_id in tool_ids:
@@ -353,8 +354,7 @@ def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
             )
             item = resp.get("Item")
             if item and item.get("functionName"):
-                # Append ___ separator to ensure exact target matching
-                targets.append(item["functionName"] + "___")
+                targets.append(item["functionName"])
         except Exception:
             pass
     return targets if targets else ["AgentCoreGatewayTool-Pathfinder"]
