@@ -342,6 +342,8 @@ def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
     Each tool ID maps to a DynamoDB record (sk=LAMBDA#{toolId}) with a functionName field.
     The function name (e.g. 'AgentCoreGatewayTool-P') is used as a prefix to match
     gateway tools (e.g. 'AgentCoreGatewayTool-P___route').
+
+    Appends '___' separator to prevent prefix collisions (e.g. 'P' matching 'Pathfinder').
     """
     targets = []
     for tool_id in tool_ids:
@@ -351,7 +353,8 @@ def _resolve_tool_targets(user_id: str, tool_ids: list) -> list:
             )
             item = resp.get("Item")
             if item and item.get("functionName"):
-                targets.append(item["functionName"])
+                # Append ___ separator to ensure exact target matching
+                targets.append(item["functionName"] + "___")
         except Exception:
             pass
     return targets if targets else ["AgentCoreGatewayTool-Pathfinder"]
