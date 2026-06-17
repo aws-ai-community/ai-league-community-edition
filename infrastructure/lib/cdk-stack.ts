@@ -1471,6 +1471,44 @@ def handler(event, context):
         except Exception as e:
             print(f'Failed to list Guardrails: {e}')
 
+        # 5. Delete SageMaker-created EFS file systems (blocks VPC deletion)
+        # SageMaker domain auto-creates EFS for home directories. Must delete
+        # mount targets first, then file systems, before VPC can be removed.
+        try:
+            import time
+            efs = boto3.client('efs')
+            fs_list = efs.describe_file_systems()
+            for fs in fs_list.get('FileSystems', []):
+                fs_id = fs['FileSystemId']
+                # Check if tagged by SageMaker or in our VPC
+                tags = efs.describe_tags(FileSystemId=fs_id).get('Tags', [])
+                is_sagemaker = any('sagemaker' in t.get('Value', '').lower() or 'ManagedByAmazonSageMakerResource' in t.get('Key', '') for t in tags)
+                if not is_sagemaker:
+                    continue
+                print(f'Found SageMaker EFS: {fs_id}')
+                # Delete mount targets first
+                mts = efs.describe_mount_targets(FileSystemId=fs_id)
+                for mt in mts.get('MountTargets', []):
+                    try:
+                        efs.delete_mount_target(MountTargetId=mt['MountTargetId'])
+                        print(f'  Deleted mount target: {mt["MountTargetId"]}')
+                    except Exception as e:
+                        print(f'  Failed to delete mount target: {e}')
+                # Wait for mount targets to be deleted
+                for _ in range(30):
+                    remaining = efs.describe_mount_targets(FileSystemId=fs_id).get('MountTargets', [])
+                    if not remaining:
+                        break
+                    time.sleep(2)
+                # Delete the file system
+                try:
+                    efs.delete_file_system(FileSystemId=fs_id)
+                    print(f'  Deleted EFS: {fs_id}')
+                except Exception as e:
+                    print(f'  Failed to delete EFS {fs_id}: {e}')
+        except Exception as e:
+            print(f'Failed to clean up EFS: {e}')
+
         cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
         print(f'Cleanup error: {e}')
@@ -1497,6 +1535,14 @@ def handler(event, context):
       actions: ['bedrock:ListGuardrails', 'bedrock:DeleteGuardrail'],
       resources: ['*'],
     }));
+    cleanupFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        'elasticfilesystem:DescribeFileSystems', 'elasticfilesystem:DescribeTags',
+        'elasticfilesystem:DescribeMountTargets', 'elasticfilesystem:DeleteMountTarget',
+        'elasticfilesystem:DeleteFileSystem',
+      ],
+      resources: ['*'],
+    }));
     agentConfigurationsTable.grantReadData(cleanupFn);
 
     const cleanupProvider = new cr.Provider(this, 'CleanupProvider', {
@@ -1512,12 +1558,14 @@ def handler(event, context):
     });
 
     // Dependency chain for clean destroy:
-    // CleanupResource depends on Gateway → on destroy, CleanupResource is deleted first
-    // (triggering the cleanup handler while Gateway still exists), then PathfindingGatewayTarget
-    // is deleted, then Gateway is deleted with no targets remaining.
+    // CleanupResource depends on Gateway, PathfindingTarget, and VPC.
+    // On destroy, CF deletes in reverse: CleanupResource first (triggering the cleanup handler
+    // which removes orphan gateway targets and SageMaker EFS), then PathfindingGatewayTarget,
+    // then Gateway (now empty), then VPC (now free of EFS ENIs).
     const cleanupCfn = cleanupResource.node.defaultChild as cdk.CfnResource;
     cleanupCfn.addDependency(gateway);
     cleanupCfn.addDependency(pathfindingTarget);
+    cleanupCfn.addDependency(smVpc.node.findChild('Resource') as cdk.CfnResource);
 
     // Stack outputs
     new cdk.CfnOutput(this, 'UserInterfaceDomainName', {
