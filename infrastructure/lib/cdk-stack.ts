@@ -528,6 +528,7 @@ def handler(event, context):
         actions: [
           'bedrock:CreateGuardrail',
           'bedrock:DeleteGuardrail',
+          'bedrock:GetGuardrail',
           'bedrock:ListGuardrails',
         ],
         resources: ['*'],

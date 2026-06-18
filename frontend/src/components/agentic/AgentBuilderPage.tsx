@@ -520,7 +520,8 @@ export default function AgentBuilderPage() {
           .map((f) => ({
             type: f.type,
             inputStrength: f.inputEnabled ? f.inputStrength : 'NONE',
-            outputStrength: f.outputEnabled ? f.outputStrength : 'NONE',
+            // PROMPT_ATTACK output strength must always be NONE per Bedrock API
+            outputStrength: f.type === 'PROMPT_ATTACK' ? 'NONE' : (f.outputEnabled ? f.outputStrength : 'NONE'),
           })),
       };
       if (guardrailDenyTopics.length > 0) {
@@ -1004,24 +1005,48 @@ export default function AgentBuilderPage() {
                                     setGuardrailFormDescription(item.description || '');
                                     // Load content filters from fullSDKResponse if available
                                     if (item.fullSDKResponse) {
-                                      const sdk = typeof item.fullSDKResponse === 'string' ? JSON.parse(item.fullSDKResponse) : item.fullSDKResponse;
+                                      const sdk = (() => {
+                                        const val = item.fullSDKResponse;
+                                        if (typeof val === 'string') {
+                                          try { return JSON.parse(val); } catch { return {}; }
+                                        }
+                                        return val || {};
+                                      })();
                                       setGuardrailFormBlockedInput(sdk.blockedInputMessaging || 'I cannot help with that request.');
                                       setGuardrailFormBlockedOutput(sdk.blockedOutputsMessaging || 'I cannot help with that request.');
-                                      // Load content filters
-                                      const filters = sdk.contentPolicy?.filtersConfig || [];
-                                      if (filters.length > 0) {
-                                        setGuardrailContentFilters(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => ({
-                                          type: f.type || '',
-                                          inputStrength: f.inputStrength || 'HIGH',
-                                          outputStrength: f.outputStrength || 'HIGH',
-                                        })));
-                                      }
-                                      // Load deny topics
-                                      const topics = sdk.topicPolicy?.topicsConfig || [];
+                                      // Load content filters (Bedrock get_guardrail returns "filters", create uses "filtersConfig")
+                                      const filters = sdk.contentPolicy?.filtersConfig || sdk.contentPolicy?.filters || [];
+                                      const FILTER_LABELS: Record<string, string> = {
+                                        SEXUAL: 'Sexual Content', VIOLENCE: 'Violence', HATE: 'Hate',
+                                        INSULTS: 'Insults', MISCONDUCT: 'Misconduct', PROMPT_ATTACK: 'Prompt Attack',
+                                      };
+                                      const ALL_FILTER_TYPES = ['SEXUAL', 'VIOLENCE', 'HATE', 'INSULTS', 'MISCONDUCT', 'PROMPT_ATTACK'];
+                                      // Build a map of saved filters
+                                      const savedMap = new Map(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => [f.type, f]));
+                                      // Merge: show all filter types, mark saved ones as enabled
+                                      setGuardrailContentFilters(ALL_FILTER_TYPES.map((type) => {
+                                        const saved = savedMap.get(type) as { type: string; inputStrength: string; outputStrength: string } | undefined;
+                                        if (saved) {
+                                          return {
+                                            type,
+                                            label: FILTER_LABELS[type] || type,
+                                            inputStrength: saved.inputStrength || 'HIGH',
+                                            outputStrength: saved.outputStrength || 'NONE',
+                                            inputEnabled: saved.inputStrength !== 'NONE',
+                                            outputEnabled: type === 'PROMPT_ATTACK' ? false : saved.outputStrength !== 'NONE',
+                                          };
+                                        }
+                                        return { type, label: FILTER_LABELS[type] || type, inputStrength: 'NONE', outputStrength: 'NONE', inputEnabled: false, outputEnabled: false };
+                                      }));
+                                      // Load deny topics (Bedrock get_guardrail returns "topics", create uses "topicsConfig")
+                                      const topics = sdk.topicPolicy?.topicsConfig || sdk.topicPolicy?.topics || [];
                                       if (topics.length > 0) {
-                                        setGuardrailDenyTopics(topics.map((t: { name: string; definition: string }) => ({
+                                        setGuardrailDenyTopics(topics.map((t: { name: string; definition: string; inputAction?: string; outputAction?: string; examples?: string[]; samplePhrases?: string[] }) => ({
                                           name: t.name || '',
                                           definition: t.definition || '',
+                                          inputAction: t.inputAction || 'BLOCK',
+                                          outputAction: t.outputAction || 'BLOCK',
+                                          samplePhrases: t.examples || t.samplePhrases || [],
                                         })));
                                       }
                                     }
@@ -1292,13 +1317,18 @@ export default function AgentBuilderPage() {
                         setGuardrailContentFilters((prev) =>
                           prev.map((f) =>
                             f.type === filter.type
-                              ? { ...f, inputEnabled: detail.checked, outputEnabled: detail.checked }
+                              ? {
+                                  ...f,
+                                  inputEnabled: detail.checked,
+                                  // PROMPT_ATTACK output must always be NONE per Bedrock API
+                                  outputEnabled: filter.type === 'PROMPT_ATTACK' ? false : detail.checked,
+                                }
                               : f
                           )
                         );
                       }}
                     >
-                      {filter.label}
+                      {filter.label}{filter.type === 'PROMPT_ATTACK' ? ' (input only)' : ''}
                     </Toggle>
                   </SpaceBetween>
                   {(filter.inputEnabled || filter.outputEnabled) && (
@@ -1324,27 +1354,29 @@ export default function AgentBuilderPage() {
                           ariaLabel={`Input strength for ${filter.type}`}
                         />
                       </FormField>
-                      <FormField label="Output Strength">
-                        <Select
-                          selectedOption={{ label: filter.outputStrength, value: filter.outputStrength }}
-                          onChange={({ detail }) => {
-                            setGuardrailContentFilters((prev) =>
-                              prev.map((f) =>
-                                f.type === filter.type
-                                  ? { ...f, outputStrength: detail.selectedOption.value || 'MEDIUM' }
-                                  : f
-                              )
-                            );
-                          }}
-                          options={[
-                            { label: 'NONE', value: 'NONE' },
-                            { label: 'LOW', value: 'LOW' },
-                            { label: 'MEDIUM', value: 'MEDIUM' },
-                            { label: 'HIGH', value: 'HIGH' },
-                          ]}
-                          ariaLabel={`Output strength for ${filter.type}`}
-                        />
-                      </FormField>
+                      {filter.type !== 'PROMPT_ATTACK' && (
+                        <FormField label="Output Strength">
+                          <Select
+                            selectedOption={{ label: filter.outputStrength, value: filter.outputStrength }}
+                            onChange={({ detail }) => {
+                              setGuardrailContentFilters((prev) =>
+                                prev.map((f) =>
+                                  f.type === filter.type
+                                    ? { ...f, outputStrength: detail.selectedOption.value || 'MEDIUM' }
+                                    : f
+                                )
+                              );
+                            }}
+                            options={[
+                              { label: 'NONE', value: 'NONE' },
+                              { label: 'LOW', value: 'LOW' },
+                              { label: 'MEDIUM', value: 'MEDIUM' },
+                              { label: 'HIGH', value: 'HIGH' },
+                            ]}
+                            ariaLabel={`Output strength for ${filter.type}`}
+                          />
+                        </FormField>
+                      )}
                     </SpaceBetween>
                   )}
                 </SpaceBetween>

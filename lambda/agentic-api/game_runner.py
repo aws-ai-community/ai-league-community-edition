@@ -724,7 +724,9 @@ def run_game_session_v2(
                         logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                         answer = ""
 
-                    is_correct = grade_response(answer, expected, strategy, cell)
+                    is_correct = grade_response(answer, expected, strategy, cell,
+                                                guardrail_id=(invoke_payload or {}).get("guardrail_id"),
+                                                question=question)
                     challenges_visited += 1
 
                     if is_correct:
@@ -807,7 +809,9 @@ def run_game_session_v2(
                     logger.warning("AgentCore timeout on key challenge at (%d,%d)", r, c)
                     answer = ""
 
-                is_correct = grade_response(answer, expected, strategy, cell)
+                is_correct = grade_response(answer, expected, strategy, cell,
+                                            guardrail_id=(invoke_payload or {}).get("guardrail_id"),
+                                            question=question)
                 challenges_visited += 1
 
                 if is_correct:
@@ -900,7 +904,9 @@ def run_game_session_v2(
                     logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                     answer = ""
 
-                is_correct = grade_response(answer, expected, strategy, cell)
+                is_correct = grade_response(answer, expected, strategy, cell,
+                                            guardrail_id=(invoke_payload or {}).get("guardrail_id"),
+                                            question=question)
                 challenges_visited += 1
                 consumed_tiles.add(pos_key)
 
