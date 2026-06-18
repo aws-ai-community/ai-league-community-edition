@@ -6,7 +6,7 @@
  */
 
 import { ChallengeAssignment } from '../components/map-builder/ChallengeEditor';
-import { getQuestionsForTileType } from './questionBank';
+import { getQuestionsForTileType, computeC3Answer } from './questionBank';
 
 export interface PredefinedMap {
   label: string;
@@ -88,7 +88,13 @@ function buildChallenges(
     const col = parseInt(colStr, 10);
     const tileType = grid[row]?.[col];
     if (tileType) {
-      challenges[posKey] = resolveChallenge(tileType, questionText);
+      const assignment = resolveChallenge(tileType, questionText);
+      // Compute map-dependent answers (c3 memory questions)
+      if (assignment.expectedAnswer === '__MAP_DEPENDENT__') {
+        const computed = computeC3Answer(questionText, grid);
+        assignment.expectedAnswer = computed ?? '';
+      }
+      challenges[posKey] = assignment;
     }
   }
   return challenges;
