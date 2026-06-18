@@ -63,7 +63,7 @@ def _bedrock_generate(prompt: str, max_tokens: int = 512) -> str:
     response = client.converse(
         modelId="us.amazon.nova-2-lite-v1:0",
         messages=[{"role": "user", "content": [{"text": prompt}]}],
-        inferenceConfig={"maxTokens": max_tokens, "temperature": 0.8},
+        inferenceConfig={"maxTokens": max_tokens, "temperature": 1.0},
     )
     text = ""
     for block in response.get("output", {}).get("message", {}).get("content", []):
@@ -74,9 +74,33 @@ def _bedrock_generate(prompt: str, max_tokens: int = 512) -> str:
 
 def _generate_bonehead() -> dict:
     """Generate a simple factual Q&A challenge."""
+    categories = [
+        "world geography (capitals, rivers, mountains)",
+        "space and astronomy (planets, stars, distances)",
+        "animal kingdom (habitats, behaviors, records)",
+        "human body and biology",
+        "world history (dates, events, figures)",
+        "ocean and marine life",
+        "weather and climate phenomena",
+        "famous inventions and inventors",
+        "world languages and linguistics",
+        "food and cuisine from around the world",
+        "sports records and achievements",
+        "music and musical instruments",
+        "architecture and famous buildings",
+        "chemistry and elements",
+        "mathematics and numbers",
+        "literature and famous authors",
+        "volcanos, earthquakes, and geology",
+        "ancient civilizations",
+        "trees, plants, and forests",
+        "transportation and vehicles",
+    ]
+    category = random.choice(categories)
     prompt = (
-        "Generate a simple factual trivia question with a short answer (1-5 words). "
-        "The question should be about general knowledge (science, geography, history, nature). "
+        f"Generate a simple factual trivia question about {category}. "
+        "The answer should be short (1-5 words) and definitively correct. "
+        "Be creative and avoid the most obvious questions. "
         "Output ONLY a JSON object: {\"question\": \"...\", \"answer\": \"...\"}\n"
         "No markdown, no explanation."
     )
