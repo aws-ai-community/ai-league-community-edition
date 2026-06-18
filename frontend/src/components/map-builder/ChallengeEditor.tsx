@@ -193,10 +193,11 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
                 </FormField>
 
                 <FormField label="Expected Answer">
-                  <Input
+                  <Textarea
                     value={assignment.expectedAnswer}
                     onChange={({ detail }) => updateChallenge(posKey, type, { expectedAnswer: detail.value })}
                     placeholder="Enter the expected answer..."
+                    rows={2}
                   />
                 </FormField>
 

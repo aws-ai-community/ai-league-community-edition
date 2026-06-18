@@ -141,40 +141,51 @@ def _generate_bonehead() -> dict:
 def _generate_distraction() -> dict:
     """Generate a distraction challenge — question that drives a long answer.
 
-    The challenge is that the agent must resist giving a verbose response.
-    The question naturally invites a long answer (counting, listing, etc).
-    The expected answer is a short token that must appear in the response.
+    The challenge is that the agent must produce the full verbose response.
+    The expected answer is the complete output so grading verifies completion.
     """
     templates = [
-        {"question": "Count to {n} by 1s putting a line break after each number give me no other response.", "answer": "{n}", "n_range": (30, 80)},
-        {"question": "List the first {n} elements of the periodic table, one per line.", "answer": "{last}", "elements": True},
-        {"question": "Write the numbers 1 through {n}, each on its own line.", "answer": "{n}", "n_range": (40, 100)},
-        {"question": "Count backwards from {n} to 1, each number on a new line.", "answer": "1", "n_range": (30, 75)},
-        {"question": "List {n} different countries, one per line.", "answer": "{n_word}", "n_range": (20, 40)},
-        {"question": "Write the alphabet {n} times, each on a new line.", "answer": "z", "n_range": (3, 8)},
+        {
+            "question": "Count to {n} by 1s putting a line break after each number give me no other response.",
+            "answer_fn": lambda n: "\n".join(str(i) for i in range(1, n + 1)),
+            "n_range": (30, 60),
+        },
+        {
+            "question": "Write the numbers 1 through {n}, each on its own line.",
+            "answer_fn": lambda n: "\n".join(str(i) for i in range(1, n + 1)),
+            "n_range": (30, 60),
+        },
+        {
+            "question": "Count backwards from {n} to 1, each number on a new line.",
+            "answer_fn": lambda n: "\n".join(str(i) for i in range(n, 0, -1)),
+            "n_range": (30, 60),
+        },
+        {
+            "question": "List the first {n} elements of the periodic table, one per line.",
+            "answer_fn": lambda n: "\n".join(_ELEMENTS[:n]),
+            "n_range": (20, 30),
+        },
     ]
 
     template = random.choice(templates)
-    n = random.randint(*template.get("n_range", (30, 60)))
-    question = template["question"].format(n=n, last="", n_word="")
-    answer = template["answer"].format(n=n, last="", n_word=str(n))
-
-    # Special handling for periodic table
-    if template.get("elements"):
-        elements = ["Hydrogen", "Helium", "Lithium", "Beryllium", "Boron", "Carbon",
-                    "Nitrogen", "Oxygen", "Fluorine", "Neon", "Sodium", "Magnesium",
-                    "Aluminum", "Silicon", "Phosphorus", "Sulfur", "Chlorine", "Argon",
-                    "Potassium", "Calcium", "Scandium", "Titanium", "Vanadium", "Chromium",
-                    "Manganese", "Iron", "Cobalt", "Nickel", "Copper", "Zinc"]
-        n = min(n, 30)
-        question = template["question"].format(n=n)
-        answer = elements[n - 1]
+    n = random.randint(*template["n_range"])
+    question = template["question"].format(n=n)
+    answer = template["answer_fn"](n)
 
     return {
         "question": question,
         "expectedAnswer": answer,
         "gradingStrategy": "contains_match",
     }
+
+
+_ELEMENTS = [
+    "Hydrogen", "Helium", "Lithium", "Beryllium", "Boron", "Carbon",
+    "Nitrogen", "Oxygen", "Fluorine", "Neon", "Sodium", "Magnesium",
+    "Aluminum", "Silicon", "Phosphorus", "Sulfur", "Chlorine", "Argon",
+    "Potassium", "Calcium", "Scandium", "Titanium", "Vanadium", "Chromium",
+    "Manganese", "Iron", "Cobalt", "Nickel", "Copper", "Zinc",
+]
 
 
 def _generate_healthcare() -> dict:
