@@ -88,7 +88,8 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
       const { generateChallenge } = await import('../../services/graphqlClient');
       const result = await generateChallenge(tileType);
       const gen = result.GenerateChallenge;
-      onChallengesChange({
+
+      const updatedChallenges = {
         ...challenges,
         [posKey]: {
           type: tileType,
@@ -96,7 +97,22 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
           expectedAnswer: gen.expectedAnswer,
           gradingStrategy: gen.gradingStrategy,
         },
-      });
+      };
+
+      // If there's a paired challenge (key/door), find the matching tile and populate it
+      if (gen.pairedTileType && gen.pairedQuestion && gen.pairedExpectedAnswer) {
+        const pairedPos = challengePositions.find((p) => p.type === gen.pairedTileType);
+        if (pairedPos) {
+          updatedChallenges[pairedPos.key] = {
+            type: gen.pairedTileType,
+            question: gen.pairedQuestion,
+            expectedAnswer: gen.pairedExpectedAnswer,
+            gradingStrategy: gen.pairedGradingStrategy || 'exact_match',
+          };
+        }
+      }
+
+      onChallengesChange(updatedChallenges);
     } catch (err) {
       alert(`Failed to generate challenge: ${err instanceof Error ? err.message : String(err)}`);
     } finally {

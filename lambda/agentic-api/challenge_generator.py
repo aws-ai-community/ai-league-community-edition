@@ -221,32 +221,52 @@ def _generate_guardrail() -> dict:
 
 
 def _generate_key(color: str) -> dict:
-    """Generate a key challenge — provides a word, expects 'Thanks'."""
-    words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
-             "golden", "harbor", "igloo", "jungle", "knight", "lunar",
-             "marble", "nectar", "oracle", "prism", "quartz", "raven",
-             "silver", "timber", "umbra", "vortex", "whisper", "zenith"]
-    word = random.choice(words)
-    return {
-        "question": f"{color} Key 1 is: {word}",
-        "expectedAnswer": "Thanks",
-        "gradingStrategy": "contains_match",
-    }
-
-
-def _generate_door(color: str) -> dict:
-    """Generate a door challenge — asks to reverse the key word."""
-    # Generate a word and its reverse (the actual key word will be set by the user pairing)
+    """Generate a key challenge — provides a word, expects 'Thanks'. Also returns the paired door challenge."""
     words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
              "golden", "harbor", "igloo", "jungle", "knight", "lunar",
              "marble", "nectar", "oracle", "prism", "quartz", "raven",
              "silver", "timber", "umbra", "vortex", "whisper", "zenith"]
     word = random.choice(words)
     reversed_word = word[::-1]
+    color_lower = color.lower()
+
+    # Map color to door tile type
+    door_map = {"red": "c30", "green": "c31", "grey": "c32", "yellow": "c33"}
+    door_tile = door_map.get(color_lower, "c30")
+
     return {
-        "question": f"What is {color} key 1?",
+        "question": f"{color} Key 1 is: {word}",
+        "expectedAnswer": "Thanks",
+        "gradingStrategy": "contains_match",
+        "pairedQuestion": f"What is {color_lower} key 1?",
+        "pairedExpectedAnswer": reversed_word,
+        "pairedGradingStrategy": "exact_match",
+        "pairedTileType": door_tile,
+    }
+
+
+def _generate_door(color: str) -> dict:
+    """Generate a door challenge — asks to reverse the key word. Also returns the paired key challenge."""
+    words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot",
+             "golden", "harbor", "igloo", "jungle", "knight", "lunar",
+             "marble", "nectar", "oracle", "prism", "quartz", "raven",
+             "silver", "timber", "umbra", "vortex", "whisper", "zenith"]
+    word = random.choice(words)
+    reversed_word = word[::-1]
+    color_lower = color
+
+    # Map color to key tile type
+    key_map = {"red": "c40", "green": "c41", "grey": "c42", "yellow": "c43"}
+    key_tile = key_map.get(color_lower, "c40")
+
+    return {
+        "question": f"What is {color_lower} key 1?",
         "expectedAnswer": reversed_word,
         "gradingStrategy": "exact_match",
+        "pairedQuestion": f"{color_lower.capitalize()} Key 1 is: {word}",
+        "pairedExpectedAnswer": "Thanks",
+        "pairedGradingStrategy": "contains_match",
+        "pairedTileType": key_tile,
     }
 
 

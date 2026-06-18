@@ -182,6 +182,10 @@ type GenerateChallengeResponse @aws_cognito_user_pools {
   expectedAnswer: String!
   gradingStrategy: String!
   url: String
+  pairedQuestion: String
+  pairedExpectedAnswer: String
+  pairedGradingStrategy: String
+  pairedTileType: String
 }
 
 type Query {

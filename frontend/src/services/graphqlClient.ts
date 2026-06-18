@@ -852,6 +852,10 @@ export interface GenerateChallengeResponse {
   expectedAnswer: string;
   gradingStrategy: string;
   url?: string;
+  pairedQuestion?: string;
+  pairedExpectedAnswer?: string;
+  pairedGradingStrategy?: string;
+  pairedTileType?: string;
 }
 
 export async function generateChallenge(tileType: string): Promise<{ GenerateChallenge: GenerateChallengeResponse }> {
@@ -862,6 +866,10 @@ export async function generateChallenge(tileType: string): Promise<{ GenerateCha
         expectedAnswer
         gradingStrategy
         url
+        pairedQuestion
+        pairedExpectedAnswer
+        pairedGradingStrategy
+        pairedTileType
       }
     }
   `;
