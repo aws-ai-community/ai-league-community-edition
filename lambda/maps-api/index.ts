@@ -346,6 +346,15 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
         body: JSON.stringify({ error: "challenges must be an object" }),
       };
     }
+    for (const [posKey, challenge] of Object.entries(body.challenges)) {
+      if (typeof challenge !== "object" || challenge === null || Array.isArray(challenge)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: `challenges.${posKey} must be an object` }),
+        };
+      }
+    }
     item.challenges = body.challenges;
   }
   if (body.isPlayable !== undefined) {
@@ -514,6 +523,15 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
         headers,
         body: JSON.stringify({ error: "challenges must be an object" }),
       };
+    }
+    for (const [posKey, challenge] of Object.entries(body.challenges)) {
+      if (typeof challenge !== "object" || challenge === null || Array.isArray(challenge)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: `challenges.${posKey} must be an object` }),
+        };
+      }
     }
     updateExpressionParts.push("#ch = :challenges");
     expressionAttributeNames["#ch"] = "challenges";

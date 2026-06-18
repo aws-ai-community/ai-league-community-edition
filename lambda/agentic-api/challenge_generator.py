@@ -16,8 +16,13 @@ import boto3
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Forbidden imports for Blue Brain code execution
+# Forbidden imports/builtins for Blue Brain code execution
 FORBIDDEN_IMPORTS = {"os", "sys", "subprocess", "socket", "shutil", "pathlib", "signal", "ctypes"}
+FORBIDDEN_PATTERNS = [
+    "__import__", "exec(", "eval(", "compile(", "open(", "globals(", "locals(",
+    "getattr(", "setattr(", "delattr(", "breakpoint(", "input(",
+    "importlib", "builtins", "__builtins__",
+]
 
 
 def handle_generate_challenge(arguments: dict, event: dict) -> dict:
@@ -443,18 +448,22 @@ def _generate_code_exec() -> dict:
     parsed = _parse_json(text)
     code = parsed["code"]
 
-    # Safety check — reject dangerous imports
+    # Safety check — reject dangerous imports and patterns
     for forbidden in FORBIDDEN_IMPORTS:
         if f"import {forbidden}" in code or f"from {forbidden}" in code:
             raise ValueError(f"Generated code contains forbidden import: {forbidden}")
+    for pattern in FORBIDDEN_PATTERNS:
+        if pattern in code:
+            raise ValueError(f"Generated code contains forbidden pattern: {pattern}")
 
-    # Execute the code
+    # Execute the code in a restricted subprocess
     try:
         result = subprocess.run(
             ["python3", "-c", code],
             capture_output=True,
             text=True,
             timeout=5,
+            env={"PATH": "/usr/bin:/bin"},  # Minimal PATH, no AWS creds
         )
         if result.returncode != 0:
             logger.warning("Code execution failed: %s", result.stderr[:200])
