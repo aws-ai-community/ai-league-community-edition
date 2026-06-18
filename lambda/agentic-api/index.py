@@ -476,6 +476,19 @@ def _handle_agentcore_flow(
             invoke_payload["model_id"] = configured_model
         if sup_item.get("systemPrompt"):
             invoke_payload["supervisor_system_prompt"] = sup_item["systemPrompt"]
+        # Resolve guardrail tool ID to Bedrock guardrail ID
+        guardrail_tool_id = sup_item.get("guardrailTool")
+        if guardrail_tool_id:
+            try:
+                gr_resp = agent_configurations_table.get_item(
+                    Key={"userId": user_id, "sk": f"GUARDRAIL#{guardrail_tool_id}"}
+                )
+                gr_item = gr_resp.get("Item")
+                if gr_item and gr_item.get("guardrailId"):
+                    invoke_payload["guardrail_id"] = gr_item["guardrailId"]
+                    invoke_payload["guardrail_version"] = "DRAFT"
+            except Exception:
+                pass
         # Supervisor's own Lambda tool targets (if any attached directly)
         if sup_item.get("lambdaTools"):
             # Resolve tool IDs to function names (= gateway target names)
