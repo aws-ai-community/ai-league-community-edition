@@ -60,6 +60,7 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
         "c2": _generate_code_exec,
         "c4": _generate_web_scraping,
         "c5": _generate_bonehead,
+        "c6": _generate_boss,
         "c17": _generate_distraction,
         "c18": _generate_healthcare,
         "c40": lambda: _generate_key("Red"),
@@ -74,7 +75,7 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
 
     generator = generators.get(tile_type)
     if not generator:
-        raise ValueError(f"No generator for tile type: {tile_type}")
+        raise ValueError(f"No generator for tile type: {tile_type}. Challenge tiles c7 (coins) and c8 (spikes) don't have questions. c3 (Memento) is generated locally.")
 
     # Pass model_id to generators that use LLM
     _bedrock_generate._model_id = model_id
@@ -246,6 +247,32 @@ def _generate_guardrail() -> dict:
         "question": parsed["question"],
         "expectedAnswer": "",
         "gradingStrategy": "guardrail_block",
+    }
+
+
+def _generate_boss() -> dict:
+    """Generate a boss challenge — a difficult multi-part question requiring reasoning."""
+    categories = [
+        "a complex logical reasoning puzzle",
+        "a multi-step math word problem",
+        "a riddle that requires lateral thinking",
+        "a tricky pattern recognition problem",
+        "a challenging general knowledge question with a twist",
+        "a problem requiring step-by-step deduction",
+    ]
+    category = random.choice(categories)
+    prompt = (
+        f"Generate {category} that is challenging but has a definitive short answer (1-10 words). "
+        "The question should require careful thought to solve correctly. "
+        "Output ONLY a JSON object: {\"question\": \"...\", \"answer\": \"...\"}\n"
+        "No markdown, no explanation."
+    )
+    text = _bedrock_generate(prompt, max_tokens=512)
+    parsed = _parse_json(text)
+    return {
+        "question": parsed["question"],
+        "expectedAnswer": parsed["answer"],
+        "gradingStrategy": "contains_match",
     }
 
 

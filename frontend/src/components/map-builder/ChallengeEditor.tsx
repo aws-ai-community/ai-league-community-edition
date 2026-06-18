@@ -85,6 +85,27 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
   const handleAutoGenerate = async (posKey: string, tileType: string) => {
     setGenerating(posKey);
     try {
+      // c3 (Memento) is map-dependent — generate locally from grid
+      if (tileType === 'c3') {
+        const c3Questions = getQuestionsForTileType('c3');
+        if (c3Questions.length > 0) {
+          const entry = c3Questions[Math.floor(Math.random() * c3Questions.length)];
+          const computed = computeC3Answer(entry.question, grid);
+          onChallengesChange({
+            ...challenges,
+            [posKey]: {
+              type: tileType,
+              question: entry.question,
+              expectedAnswer: computed ?? '(could not compute)',
+              gradingStrategy: entry.gradingStrategy,
+            },
+          });
+        } else {
+          alert('No Memento questions available for this map.');
+        }
+        return;
+      }
+
       const { generateChallenge } = await import('../../services/graphqlClient');
       const result = await generateChallenge(tileType);
       const gen = result.GenerateChallenge;
