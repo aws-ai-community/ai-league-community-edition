@@ -105,7 +105,7 @@ export function MapProvider({ children }: MapProviderProps) {
 
   // Settings state
   const [startingLives, setStartingLivesState] = useState(5);
-  const [timeLimit, setTimeLimitState] = useState(5);
+  const [timeLimit, setTimeLimitState] = useState(300);
   const [tileOverrides, setTileOverrides] = useState<Record<TileKey, TileOverride>>({} as Record<TileKey, TileOverride>);
   const tileOverridesRef = useRef(tileOverrides);
 
