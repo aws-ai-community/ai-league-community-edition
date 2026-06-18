@@ -33,6 +33,28 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
     if not tile_type:
         raise ValueError("tileType is required")
 
+    # Load user's configured challenge generation model
+    identity = event.get("identity")
+    user_id = "anonymous"
+    if identity:
+        user_id = identity.get("sub") or identity.get("username", "anonymous")
+
+    model_id = "us.amazon.nova-2-lite-v1:0"
+    try:
+        import os
+        table_name = os.environ.get("AGENT_CONFIGURATIONS_TABLE", "")
+        if table_name:
+            dynamodb = boto3.resource("dynamodb")
+            table = dynamodb.Table(table_name)
+            resp = table.get_item(Key={"userId": user_id, "sk": "LLM_CONFIG"})
+            item = resp.get("Item")
+            if item:
+                data = item.get("data", {})
+                if data.get("challengeGeneration"):
+                    model_id = data["challengeGeneration"]
+    except Exception as e:
+        logger.warning("Failed to load challenge generation model config: %s", e)
+
     generators = {
         "c1": _generate_guardrail,
         "c2": _generate_code_exec,
@@ -54,14 +76,17 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
     if not generator:
         raise ValueError(f"No generator for tile type: {tile_type}")
 
+    # Pass model_id to generators that use LLM
+    _bedrock_generate._model_id = model_id
     return generator()
 
 
 def _bedrock_generate(prompt: str, max_tokens: int = 512) -> str:
-    """Call Bedrock Converse to generate text."""
+    """Call Bedrock Converse to generate text. Uses model configured via handle_generate_challenge."""
+    model_id = getattr(_bedrock_generate, "_model_id", "us.amazon.nova-2-lite-v1:0")
     client = boto3.client("bedrock-runtime")
     response = client.converse(
-        modelId="us.amazon.nova-2-lite-v1:0",
+        modelId=model_id,
         messages=[{"role": "user", "content": [{"text": prompt}]}],
         inferenceConfig={"maxTokens": max_tokens, "temperature": 1.0},
     )
