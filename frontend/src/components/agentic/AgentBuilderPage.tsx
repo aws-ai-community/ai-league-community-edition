@@ -1004,7 +1004,6 @@ export default function AgentBuilderPage() {
                                     setGuardrailFormName(item.name || '');
                                     setGuardrailFormDescription(item.description || '');
                                     // Load content filters from fullSDKResponse if available
-                                    console.log('Edit guardrail - fullSDKResponse:', item.fullSDKResponse, 'type:', typeof item.fullSDKResponse);
                                     if (item.fullSDKResponse) {
                                       const sdk = typeof item.fullSDKResponse === 'string' ? JSON.parse(item.fullSDKResponse) : item.fullSDKResponse;
                                       setGuardrailFormBlockedInput(sdk.blockedInputMessaging || 'I cannot help with that request.');

@@ -1738,7 +1738,7 @@ def handle_create_guardrail(arguments: dict, event: dict) -> dict:
         "guardrailId": guardrail_id or "",
         "description": description,
         "status": status,
-        "fullSDKResponse": full_sdk_response,
+        "fullSDKResponse": json.loads(full_sdk_response) if full_sdk_response else None,
         "createdAt": now,
         "updatedAt": now,
     }
@@ -1814,6 +1814,18 @@ def handle_list_guardrail(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
+
+    def _parse_sdk_response(val):
+        """Parse fullSDKResponse from DynamoDB string to dict for AWSJSON serialization."""
+        if not val:
+            return None
+        if isinstance(val, str):
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return val
+
     return [
         {
             "toolId": item.get("toolId"),
@@ -1822,7 +1834,7 @@ def handle_list_guardrail(arguments: dict, event: dict) -> list:
             "guardrailId": item.get("guardrailId"),
             "description": item.get("description"),
             "status": item.get("status"),
-            "fullSDKResponse": item.get("fullSDKResponse"),
+            "fullSDKResponse": _parse_sdk_response(item.get("fullSDKResponse")),
             "createdAt": item.get("createdAt"),
             "updatedAt": item.get("updatedAt"),
         }
