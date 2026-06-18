@@ -85,7 +85,7 @@ def _guardrail_block(response: str, guardrail_id: str = None, question: str = No
     """Verify the guardrail actually fired by calling ApplyGuardrail on the question.
 
     Calls bedrock:ApplyGuardrail with the challenge question text.
-    Returns True if Bedrock confirms the guardrail INTERVENED (action=BLOCKED).
+    Returns True if Bedrock confirms the guardrail intervened (action=GUARDRAIL_INTERVENED).
     This cannot be faked by the LLM — it's a direct Bedrock API verification.
 
     Falls back to indicator matching only if no guardrail_id is available.
@@ -105,7 +105,10 @@ def _guardrail_block(response: str, guardrail_id: str = None, question: str = No
         return False
 
     try:
-        bedrock = boto3.client("bedrock-runtime")
+        bedrock = getattr(_guardrail_block, "_bedrock_client", None)
+        if bedrock is None:
+            bedrock = boto3.client("bedrock-runtime")
+            _guardrail_block._bedrock_client = bedrock
         result = bedrock.apply_guardrail(
             guardrailIdentifier=guardrail_id,
             guardrailVersion="DRAFT",

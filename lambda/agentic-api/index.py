@@ -487,8 +487,8 @@ def _handle_agentcore_flow(
                 if gr_item and gr_item.get("guardrailId"):
                     invoke_payload["guardrail_id"] = gr_item["guardrailId"]
                     invoke_payload["guardrail_version"] = "DRAFT"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to resolve guardrail tool %s for user %s: %s", guardrail_tool_id, user_id, e)
         # Supervisor's own Lambda tool targets (if any attached directly)
         if sup_item.get("lambdaTools"):
             # Resolve tool IDs to function names (= gateway target names)

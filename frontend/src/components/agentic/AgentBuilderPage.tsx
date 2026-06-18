@@ -1005,7 +1005,13 @@ export default function AgentBuilderPage() {
                                     setGuardrailFormDescription(item.description || '');
                                     // Load content filters from fullSDKResponse if available
                                     if (item.fullSDKResponse) {
-                                      const sdk = typeof item.fullSDKResponse === 'string' ? JSON.parse(item.fullSDKResponse) : item.fullSDKResponse;
+                                      const sdk = (() => {
+                                        const val = item.fullSDKResponse;
+                                        if (typeof val === 'string') {
+                                          try { return JSON.parse(val); } catch { return {}; }
+                                        }
+                                        return val || {};
+                                      })();
                                       setGuardrailFormBlockedInput(sdk.blockedInputMessaging || 'I cannot help with that request.');
                                       setGuardrailFormBlockedOutput(sdk.blockedOutputsMessaging || 'I cannot help with that request.');
                                       // Load content filters (Bedrock get_guardrail returns "filters", create uses "filtersConfig")
