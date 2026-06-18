@@ -158,7 +158,6 @@ def handle_get_map(arguments, event):
         # Scan for the map by mapId (sort key) since we don't know the owner userId
         response = maps_table.scan(
             FilterExpression=Attr("mapId").eq(map_id),
-            Limit=1,
         )
     except Exception as e:
         logger.error(f"Error loading map {map_id}: {e}")
@@ -814,7 +813,6 @@ def _load_map_data(map_id: str, map_data_json: str, session_id: str):
         try:
             map_response = maps_table.scan(
                 FilterExpression=Attr("mapId").eq(map_id),
-                Limit=1,
             )
         except Exception as e:
             logger.error(f"Error loading map {map_id}: {e}")
