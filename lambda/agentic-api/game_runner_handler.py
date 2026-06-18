@@ -49,7 +49,7 @@ def handler(event, context):
         map_data_raw = event.get("map_data", "{}")
         map_data = json.loads(map_data_raw) if isinstance(map_data_raw, str) else map_data_raw
         player_start = map_data.get("playerStart")
-        if not player_start:
+        if not isinstance(player_start, dict) or "row" not in player_start or "col" not in player_start:
             # Scan grid for the 'start' tile
             grid = map_data.get("grid", [])
             player_start = {"row": 0, "col": 0}
@@ -61,7 +61,10 @@ def handler(event, context):
                 else:
                     continue
                 break
-        start_pos = (player_start["row"], player_start["col"])
+        try:
+            start_pos = (int(player_start["row"]), int(player_start["col"]))
+        except (KeyError, TypeError, ValueError):
+            start_pos = (0, 0)
 
         for attempt in range(3):
             agent_response = invoke_agent_runtime(

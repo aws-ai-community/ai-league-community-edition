@@ -158,14 +158,19 @@ def handle_get_map(arguments, event):
 
     try:
         # Scan for the map by mapId (sort key) since we don't know the owner userId
-        response = maps_table.scan(
-            FilterExpression=Attr("mapId").eq(map_id),
-        )
+        # Paginate in case table exceeds 1MB scan limit
+        items = []
+        scan_kwargs = {"FilterExpression": Attr("mapId").eq(map_id)}
+        while True:
+            response = maps_table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
+            if items or "LastEvaluatedKey" not in response:
+                break
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
     except Exception as e:
         logger.error(f"Error loading map {map_id}: {e}")
         return {"mapData": None}
 
-    items = response.get("Items", [])
     if not items:
         return {"mapData": None}
 
@@ -813,15 +818,20 @@ def _load_map_data(map_id: str, map_data_json: str, session_id: str):
     else:
         # Load from Maps table (scan by mapId since table uses userId+mapId composite key)
         try:
-            map_response = maps_table.scan(
-                FilterExpression=Attr("mapId").eq(map_id),
-            )
+            # Paginate scan in case table exceeds 1MB
+            map_items = []
+            scan_kwargs = {"FilterExpression": Attr("mapId").eq(map_id)}
+            while True:
+                map_response = maps_table.scan(**scan_kwargs)
+                map_items.extend(map_response.get("Items", []))
+                if map_items or "LastEvaluatedKey" not in map_response:
+                    break
+                scan_kwargs["ExclusiveStartKey"] = map_response["LastEvaluatedKey"]
         except Exception as e:
             logger.error(f"Error loading map {map_id}: {e}")
             _update_session_error(session_id, f"Failed to load map: {e}")
             return {"__error": f"Failed to load map: {e}"}
 
-        map_items = map_response.get("Items", [])
         if not map_items:
             _update_session_error(session_id, "Map not found")
             return {"__error": "Map not found"}

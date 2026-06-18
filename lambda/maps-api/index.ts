@@ -339,9 +339,23 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     item.tileOverrides = body.tileOverrides;
   }
   if (body.challenges !== undefined) {
+    if (typeof body.challenges !== "object" || body.challenges === null || Array.isArray(body.challenges)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "challenges must be an object" }),
+      };
+    }
     item.challenges = body.challenges;
   }
   if (body.isPlayable !== undefined) {
+    if (typeof body.isPlayable !== "boolean") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "isPlayable must be a boolean" }),
+      };
+    }
     item.isPlayable = body.isPlayable;
   }
 
@@ -494,11 +508,25 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     expressionAttributeValues[":tileOverrides"] = body.tileOverrides;
   }
   if (body.challenges !== undefined) {
+    if (typeof body.challenges !== "object" || body.challenges === null || Array.isArray(body.challenges)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "challenges must be an object" }),
+      };
+    }
     updateExpressionParts.push("#ch = :challenges");
     expressionAttributeNames["#ch"] = "challenges";
     expressionAttributeValues[":challenges"] = body.challenges;
   }
   if (body.isPlayable !== undefined) {
+    if (typeof body.isPlayable !== "boolean") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "isPlayable must be a boolean" }),
+      };
+    }
     updateExpressionParts.push("#ip = :isPlayable");
     expressionAttributeNames["#ip"] = "isPlayable";
     expressionAttributeValues[":isPlayable"] = body.isPlayable;
