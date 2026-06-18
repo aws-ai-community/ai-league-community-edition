@@ -48,7 +48,19 @@ def handler(event, context):
         nav_path = None
         map_data_raw = event.get("map_data", "{}")
         map_data = json.loads(map_data_raw) if isinstance(map_data_raw, str) else map_data_raw
-        player_start = map_data.get("playerStart", {"row": 0, "col": 0})
+        player_start = map_data.get("playerStart")
+        if not player_start:
+            # Scan grid for the 'start' tile
+            grid = map_data.get("grid", [])
+            player_start = {"row": 0, "col": 0}
+            for r, row in enumerate(grid):
+                for c, cell in enumerate(row):
+                    if cell == "start":
+                        player_start = {"row": r, "col": c}
+                        break
+                else:
+                    continue
+                break
         start_pos = (player_start["row"], player_start["col"])
 
         for attempt in range(3):
