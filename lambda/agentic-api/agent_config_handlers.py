@@ -1678,6 +1678,28 @@ def handle_create_guardrail(arguments: dict, event: dict) -> dict:
         create_response = client.create_guardrail(**create_kwargs)
         guardrail_id = create_response.get("guardrailId", "")
         status = create_response.get("status", "READY")
+
+        # Fetch the full guardrail config for editing purposes
+        full_sdk_response = None
+        if guardrail_id:
+            try:
+                get_response = client.get_guardrail(guardrailIdentifier=guardrail_id)
+                # Store the fields the UI needs for editing
+                full_sdk_response = json.dumps({
+                    "blockedInputMessaging": get_response.get("blockedInputMessaging", ""),
+                    "blockedOutputsMessaging": get_response.get("blockedOutputsMessaging", ""),
+                    "contentPolicy": get_response.get("contentPolicy", {}),
+                    "topicPolicy": get_response.get("topicPolicy", {}),
+                })
+            except Exception as get_err:
+                logger.warning("Failed to get full guardrail config after creation: %s", get_err)
+                # Fall back to storing what we sent
+                full_sdk_response = json.dumps({
+                    "blockedInputMessaging": blocked_input_messaging,
+                    "blockedOutputsMessaging": blocked_outputs_messaging,
+                    "contentPolicy": create_kwargs.get("contentPolicyConfig", {}),
+                    "topicPolicy": create_kwargs.get("topicPolicyConfig", {}),
+                })
     except Exception as e:
         error_code = ""
         if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
@@ -1696,6 +1718,7 @@ def handle_create_guardrail(arguments: dict, event: dict) -> dict:
         "guardrailId": guardrail_id or "",
         "description": description,
         "status": status,
+        "fullSDKResponse": full_sdk_response,
         "gsi1pk": f"USER#{user_id}",
         "gsi1sk": f"GUARDRAIL#{now}",
         "createdAt": now,
@@ -1715,6 +1738,7 @@ def handle_create_guardrail(arguments: dict, event: dict) -> dict:
         "guardrailId": guardrail_id or "",
         "description": description,
         "status": status,
+        "fullSDKResponse": full_sdk_response,
         "createdAt": now,
         "updatedAt": now,
     }
@@ -1798,6 +1822,7 @@ def handle_list_guardrail(arguments: dict, event: dict) -> list:
             "guardrailId": item.get("guardrailId"),
             "description": item.get("description"),
             "status": item.get("status"),
+            "fullSDKResponse": item.get("fullSDKResponse"),
             "createdAt": item.get("createdAt"),
             "updatedAt": item.get("updatedAt"),
         }
