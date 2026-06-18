@@ -228,7 +228,7 @@ type Mutation {
   CreateGuardrail(name: String!, description: String, blockedInputMessaging: String, blockedOutputsMessaging: String, contentPolicyConfig: String): GuardrailTool @aws_cognito_user_pools
   DeleteGuardrail(toolId: String!): MutationResponse @aws_cognito_user_pools
   CreateModel(name: String!, resourceIdentifier: String!, type: String!, pathfindingPromptStrategy: String): CreateModelResponse @aws_cognito_user_pools
-  GenerateChallenge(tileType: String!): GenerateChallengeResponse @aws_cognito_user_pools
+  GenerateChallenge(tileType: String!, grid: [[String]]): GenerateChallengeResponse @aws_cognito_user_pools
 }
 
 schema {

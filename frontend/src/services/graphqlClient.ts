@@ -858,10 +858,10 @@ export interface GenerateChallengeResponse {
   pairedTileType?: string;
 }
 
-export async function generateChallenge(tileType: string): Promise<{ GenerateChallenge: GenerateChallengeResponse }> {
+export async function generateChallenge(tileType: string, grid?: string[][]): Promise<{ GenerateChallenge: GenerateChallengeResponse }> {
   const query = `
-    mutation GenerateChallenge($tileType: String!) {
-      GenerateChallenge(tileType: $tileType) {
+    mutation GenerateChallenge($tileType: String!, $grid: [[String]]) {
+      GenerateChallenge(tileType: $tileType, grid: $grid) {
         question
         expectedAnswer
         gradingStrategy
@@ -873,5 +873,5 @@ export async function generateChallenge(tileType: string): Promise<{ GenerateCha
       }
     }
   `;
-  return graphqlRequest<{ GenerateChallenge: GenerateChallengeResponse }>(query, { tileType }, true);
+  return graphqlRequest<{ GenerateChallenge: GenerateChallengeResponse }>(query, { tileType, grid: grid || null }, true);
 }

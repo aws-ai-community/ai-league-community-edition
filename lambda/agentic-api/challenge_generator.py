@@ -79,6 +79,11 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
 
     # Pass model_id to generators that use LLM
     _bedrock_generate._model_id = model_id
+
+    # Pass grid to boss generator if available
+    grid = arguments.get("grid")
+    _generate_boss._grid = grid
+
     return generator()
 
 
@@ -251,29 +256,120 @@ def _generate_guardrail() -> dict:
 
 
 def _generate_boss() -> dict:
-    """Generate a boss challenge — a difficult multi-part question requiring reasoning."""
-    categories = [
-        "a complex logical reasoning puzzle",
-        "a multi-step math word problem",
-        "a riddle that requires lateral thinking",
-        "a tricky pattern recognition problem",
-        "a challenging general knowledge question with a twist",
-        "a problem requiring step-by-step deduction",
+    """Generate a boss challenge — a multi-part composite question requiring multiple skills.
+
+    Combines code execution, web lookup, and map awareness into one answer.
+    The answer is computed server-side so it's verifiable.
+    """
+    grid = getattr(_generate_boss, "_grid", None)
+
+    # Count tiles from the grid for map-awareness component
+    tile_counts = {}
+    if grid:
+        for row in grid:
+            for cell in row:
+                tile_counts[cell] = tile_counts.get(cell, 0) + 1
+
+    # Pick a composite challenge template
+    templates = [
+        _boss_template_math_plus_map,
+        _boss_template_code_plus_web,
+        _boss_template_triple_combo,
     ]
-    category = random.choice(categories)
-    prompt = (
-        f"Generate {category} that is challenging but has a definitive short answer (1-10 words). "
-        "The question should require careful thought to solve correctly. "
-        "Output ONLY a JSON object: {\"question\": \"...\", \"answer\": \"...\"}\n"
-        "No markdown, no explanation."
+    template_fn = random.choice(templates)
+    return template_fn(grid, tile_counts)
+
+
+def _boss_template_math_plus_map(grid, tile_counts) -> dict:
+    """Boss template: compute Nth prime + multiply by tile count on map."""
+    n = random.randint(10, 30)
+    # Compute Nth prime
+    primes = []
+    candidate = 2
+    while len(primes) < n:
+        if all(candidate % p != 0 for p in primes):
+            primes.append(candidate)
+        candidate += 1
+    nth_prime = primes[-1]
+
+    # Pick a tile type that exists on the map
+    countable_tiles = {k: v for k, v in tile_counts.items() if k not in ("normal", "wall", "start", "treasure")}
+    if countable_tiles:
+        tile_type, count = random.choice(list(countable_tiles.items()))
+    else:
+        tile_type, count = "normal", tile_counts.get("normal", 10)
+
+    answer = nth_prime * count
+    question = (
+        f"Calculate: (the {_ordinal(n)} prime number) × (number of {tile_type} tiles on this map). "
+        f"Give only the final number."
     )
-    text = _bedrock_generate(prompt, max_tokens=512)
-    parsed = _parse_json(text)
     return {
-        "question": parsed["question"],
-        "expectedAnswer": parsed["answer"],
+        "question": question,
+        "expectedAnswer": str(answer),
         "gradingStrategy": "contains_match",
     }
+
+
+def _boss_template_code_plus_web(grid, tile_counts) -> dict:
+    """Boss template: sum of digits of a large computation + a web fact."""
+    # Generate a computation
+    base = random.randint(2, 9)
+    exp = random.randint(10, 20)
+    result = base ** exp
+    digit_sum = sum(int(d) for d in str(result))
+
+    # Pick a factual multiplier from map
+    wall_count = tile_counts.get("wall", 0)
+    final_answer = digit_sum + wall_count
+
+    question = (
+        f"Compute: (sum of digits of {base}^{exp}) + (number of wall tiles on this map). "
+        f"Give only the final number."
+    )
+    return {
+        "question": question,
+        "expectedAnswer": str(final_answer),
+        "gradingStrategy": "contains_match",
+    }
+
+
+def _boss_template_triple_combo(grid, tile_counts) -> dict:
+    """Boss template: fibonacci + tile count × random multiplier."""
+    # Compute fibonacci
+    fib_n = random.randint(10, 20)
+    a, b = 0, 1
+    for _ in range(fib_n - 1):
+        a, b = b, a + b
+    fib_value = b
+
+    # Map component
+    coin_count = tile_counts.get("c7", 0)
+    challenge_count = sum(v for k, v in tile_counts.items() if k.startswith("c") and k not in ("c7", "c8"))
+
+    # Combine
+    multiplier = random.randint(2, 7)
+    answer = fib_value + (challenge_count * multiplier) - coin_count
+
+    question = (
+        f"Calculate: (fibonacci number #{fib_n}) + (number of challenge tiles on this map, "
+        f"excluding coins and spikes) × {multiplier} - (number of coin tiles on this map). "
+        f"Give only the final number."
+    )
+    return {
+        "question": question,
+        "expectedAnswer": str(answer),
+        "gradingStrategy": "contains_match",
+    }
+
+
+def _ordinal(n: int) -> str:
+    """Convert number to ordinal string (1st, 2nd, 3rd, etc)."""
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
 
 
 def _generate_key(color: str) -> dict:

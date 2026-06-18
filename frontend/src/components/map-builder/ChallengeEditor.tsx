@@ -107,7 +107,7 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
       }
 
       const { generateChallenge } = await import('../../services/graphqlClient');
-      const result = await generateChallenge(tileType);
+      const result = await generateChallenge(tileType, tileType === 'c6' ? grid : undefined);
       const gen = result.GenerateChallenge;
 
       const updatedChallenges = {
