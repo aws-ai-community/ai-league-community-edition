@@ -379,38 +379,47 @@ def _generate_code_exec() -> dict:
 def _generate_web_scraping() -> dict:
     """Generate a web scraping challenge from AWS documentation.
 
-    LLM picks a URL, we fetch it, LLM extracts a factual Q&A.
+    Picks a random URL from a curated list, fetches content, LLM extracts Q&A.
     """
-    # Step 1: Pick a URL
-    url_prompt = (
-        "Pick a random AWS documentation or blog URL that contains factual, "
-        "technical information. Choose from pages like:\n"
-        "- https://docs.aws.amazon.com/... (service documentation)\n"
-        "- https://aws.amazon.com/... (service landing pages)\n\n"
-        "Output ONLY a JSON object: {\"url\": \"https://...\"}\n"
-        "No markdown, no explanation."
-    )
-    url_text = _bedrock_generate(url_prompt, max_tokens=256)
-    url_parsed = _parse_json(url_text)
-    url = url_parsed["url"]
+    urls = [
+        "https://aws.amazon.com/what-is/cloud-computing/",
+        "https://aws.amazon.com/what-is/api/",
+        "https://aws.amazon.com/what-is/machine-learning/",
+        "https://aws.amazon.com/what-is/serverless-computing/",
+        "https://aws.amazon.com/what-is/artificial-intelligence/",
+        "https://aws.amazon.com/what-is/data-lake/",
+        "https://aws.amazon.com/what-is/containerization/",
+        "https://aws.amazon.com/what-is/kubernetes/",
+        "https://aws.amazon.com/what-is/devops/",
+        "https://aws.amazon.com/what-is/microservices/",
+        "https://aws.amazon.com/what-is/nosql/",
+        "https://aws.amazon.com/what-is/etl/",
+        "https://aws.amazon.com/what-is/data-warehouse/",
+        "https://aws.amazon.com/what-is/deep-learning/",
+        "https://aws.amazon.com/what-is/nlp/",
+        "https://aws.amazon.com/what-is/generative-ai/",
+        "https://aws.amazon.com/what-is/rag/",
+        "https://aws.amazon.com/what-is/prompt-engineering/",
+        "https://aws.amazon.com/what-is/foundation-models/",
+        "https://aws.amazon.com/what-is/computer-vision/",
+        "https://aws.amazon.com/what-is/iot/",
+        "https://aws.amazon.com/what-is/cdn/",
+        "https://aws.amazon.com/what-is/sql/",
+        "https://aws.amazon.com/what-is/ci-cd/",
+        "https://aws.amazon.com/what-is/blockchain/",
+    ]
+    url = random.choice(urls)
 
-    # Step 2: Fetch page content
+    # Fetch page content
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "AI-League-ChallengeGen/1.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             content = resp.read().decode("utf-8", errors="replace")[:8000]
     except Exception as e:
         logger.warning("Failed to fetch URL %s: %s", url, e)
-        # Fallback to a known working URL
-        url = "https://aws.amazon.com/what-is/cloud-computing/"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "AI-League-ChallengeGen/1.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                content = resp.read().decode("utf-8", errors="replace")[:8000]
-        except Exception:
-            raise ValueError("Failed to fetch web content for challenge generation")
+        raise ValueError(f"Failed to fetch web content from {url}")
 
-    # Step 3: Extract Q&A from content
+    # Extract Q&A from content
     qa_prompt = (
         f"Given this webpage content from {url}, generate a factual question "
         f"whose answer can be found directly in the text. The answer should be "
