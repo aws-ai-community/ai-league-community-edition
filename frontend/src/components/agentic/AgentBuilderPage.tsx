@@ -1008,21 +1008,31 @@ export default function AgentBuilderPage() {
                                       const sdk = typeof item.fullSDKResponse === 'string' ? JSON.parse(item.fullSDKResponse) : item.fullSDKResponse;
                                       setGuardrailFormBlockedInput(sdk.blockedInputMessaging || 'I cannot help with that request.');
                                       setGuardrailFormBlockedOutput(sdk.blockedOutputsMessaging || 'I cannot help with that request.');
-                                      // Load content filters
-                                      const filters = sdk.contentPolicy?.filtersConfig || [];
+                                      // Load content filters (Bedrock get_guardrail returns "filters", create uses "filtersConfig")
+                                      const filters = sdk.contentPolicy?.filtersConfig || sdk.contentPolicy?.filters || [];
                                       if (filters.length > 0) {
+                                        const FILTER_LABELS: Record<string, string> = {
+                                          SEXUAL: 'Sexual Content', VIOLENCE: 'Violence', HATE: 'Hate',
+                                          INSULTS: 'Insults', MISCONDUCT: 'Misconduct', PROMPT_ATTACK: 'Prompt Attack',
+                                        };
                                         setGuardrailContentFilters(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => ({
                                           type: f.type || '',
+                                          label: FILTER_LABELS[f.type] || f.type,
                                           inputStrength: f.inputStrength || 'HIGH',
-                                          outputStrength: f.outputStrength || 'HIGH',
+                                          outputStrength: f.outputStrength || 'NONE',
+                                          inputEnabled: f.inputStrength !== 'NONE',
+                                          outputEnabled: f.type === 'PROMPT_ATTACK' ? false : f.outputStrength !== 'NONE',
                                         })));
                                       }
-                                      // Load deny topics
-                                      const topics = sdk.topicPolicy?.topicsConfig || [];
+                                      // Load deny topics (Bedrock get_guardrail returns "topics", create uses "topicsConfig")
+                                      const topics = sdk.topicPolicy?.topicsConfig || sdk.topicPolicy?.topics || [];
                                       if (topics.length > 0) {
-                                        setGuardrailDenyTopics(topics.map((t: { name: string; definition: string }) => ({
+                                        setGuardrailDenyTopics(topics.map((t: { name: string; definition: string; inputAction?: string; outputAction?: string; examples?: string[]; samplePhrases?: string[] }) => ({
                                           name: t.name || '',
                                           definition: t.definition || '',
+                                          inputAction: t.inputAction || 'BLOCK',
+                                          outputAction: t.outputAction || 'BLOCK',
+                                          samplePhrases: t.examples || t.samplePhrases || [],
                                         })));
                                       }
                                     }
