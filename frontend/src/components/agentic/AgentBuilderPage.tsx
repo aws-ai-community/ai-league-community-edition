@@ -1010,20 +1010,28 @@ export default function AgentBuilderPage() {
                                       setGuardrailFormBlockedOutput(sdk.blockedOutputsMessaging || 'I cannot help with that request.');
                                       // Load content filters (Bedrock get_guardrail returns "filters", create uses "filtersConfig")
                                       const filters = sdk.contentPolicy?.filtersConfig || sdk.contentPolicy?.filters || [];
-                                      if (filters.length > 0) {
-                                        const FILTER_LABELS: Record<string, string> = {
-                                          SEXUAL: 'Sexual Content', VIOLENCE: 'Violence', HATE: 'Hate',
-                                          INSULTS: 'Insults', MISCONDUCT: 'Misconduct', PROMPT_ATTACK: 'Prompt Attack',
-                                        };
-                                        setGuardrailContentFilters(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => ({
-                                          type: f.type || '',
-                                          label: FILTER_LABELS[f.type] || f.type,
-                                          inputStrength: f.inputStrength || 'HIGH',
-                                          outputStrength: f.outputStrength || 'NONE',
-                                          inputEnabled: f.inputStrength !== 'NONE',
-                                          outputEnabled: f.type === 'PROMPT_ATTACK' ? false : f.outputStrength !== 'NONE',
-                                        })));
-                                      }
+                                      const FILTER_LABELS: Record<string, string> = {
+                                        SEXUAL: 'Sexual Content', VIOLENCE: 'Violence', HATE: 'Hate',
+                                        INSULTS: 'Insults', MISCONDUCT: 'Misconduct', PROMPT_ATTACK: 'Prompt Attack',
+                                      };
+                                      const ALL_FILTER_TYPES = ['SEXUAL', 'VIOLENCE', 'HATE', 'INSULTS', 'MISCONDUCT', 'PROMPT_ATTACK'];
+                                      // Build a map of saved filters
+                                      const savedMap = new Map(filters.map((f: { type: string; inputStrength: string; outputStrength: string }) => [f.type, f]));
+                                      // Merge: show all filter types, mark saved ones as enabled
+                                      setGuardrailContentFilters(ALL_FILTER_TYPES.map((type) => {
+                                        const saved = savedMap.get(type) as { type: string; inputStrength: string; outputStrength: string } | undefined;
+                                        if (saved) {
+                                          return {
+                                            type,
+                                            label: FILTER_LABELS[type] || type,
+                                            inputStrength: saved.inputStrength || 'HIGH',
+                                            outputStrength: saved.outputStrength || 'NONE',
+                                            inputEnabled: saved.inputStrength !== 'NONE',
+                                            outputEnabled: type === 'PROMPT_ATTACK' ? false : saved.outputStrength !== 'NONE',
+                                          };
+                                        }
+                                        return { type, label: FILTER_LABELS[type] || type, inputStrength: 'NONE', outputStrength: 'NONE', inputEnabled: false, outputEnabled: false };
+                                      }));
                                       // Load deny topics (Bedrock get_guardrail returns "topics", create uses "topicsConfig")
                                       const topics = sdk.topicPolicy?.topicsConfig || sdk.topicPolicy?.topics || [];
                                       if (topics.length > 0) {
