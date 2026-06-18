@@ -281,7 +281,7 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
-  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }> };
+  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }>; challenges?: Record<string, unknown>; isPlayable?: boolean };
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
@@ -338,6 +338,35 @@ async function handleCreate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
   if (body.tileOverrides !== undefined) {
     item.tileOverrides = body.tileOverrides;
   }
+  if (body.challenges !== undefined) {
+    if (typeof body.challenges !== "object" || body.challenges === null || Array.isArray(body.challenges)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "challenges must be an object" }),
+      };
+    }
+    for (const [posKey, challenge] of Object.entries(body.challenges)) {
+      if (typeof challenge !== "object" || challenge === null || Array.isArray(challenge)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: `challenges.${posKey} must be an object` }),
+        };
+      }
+    }
+    item.challenges = body.challenges;
+  }
+  if (body.isPlayable !== undefined) {
+    if (typeof body.isPlayable !== "boolean") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "isPlayable must be a boolean" }),
+      };
+    }
+    item.isPlayable = body.isPlayable;
+  }
 
   try {
     await docClient.send(
@@ -380,7 +409,7 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     };
   }
 
-  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }> };
+  let body: { name?: string; width?: number; height?: number; grid?: string[][]; startingLives?: number; timeLimit?: number; tileOverrides?: Record<string, { points: number; damage: number }>; challenges?: Record<string, unknown>; isPlayable?: boolean };
   try {
     body = JSON.parse(event.body || "{}");
   } catch {
@@ -486,6 +515,39 @@ async function handleUpdate(event: APIGatewayProxyEvent): Promise<APIGatewayProx
     updateExpressionParts.push("#to = :tileOverrides");
     expressionAttributeNames["#to"] = "tileOverrides";
     expressionAttributeValues[":tileOverrides"] = body.tileOverrides;
+  }
+  if (body.challenges !== undefined) {
+    if (typeof body.challenges !== "object" || body.challenges === null || Array.isArray(body.challenges)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "challenges must be an object" }),
+      };
+    }
+    for (const [posKey, challenge] of Object.entries(body.challenges)) {
+      if (typeof challenge !== "object" || challenge === null || Array.isArray(challenge)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: `challenges.${posKey} must be an object` }),
+        };
+      }
+    }
+    updateExpressionParts.push("#ch = :challenges");
+    expressionAttributeNames["#ch"] = "challenges";
+    expressionAttributeValues[":challenges"] = body.challenges;
+  }
+  if (body.isPlayable !== undefined) {
+    if (typeof body.isPlayable !== "boolean") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: "isPlayable must be a boolean" }),
+      };
+    }
+    updateExpressionParts.push("#ip = :isPlayable");
+    expressionAttributeNames["#ip"] = "isPlayable";
+    expressionAttributeValues[":isPlayable"] = body.isPlayable;
   }
 
   if (updateExpressionParts.length === 0) {

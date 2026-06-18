@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import FormField from '@cloudscape-design/components/form-field';
@@ -80,9 +80,65 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
     });
   };
 
-  const handleAutoGenerate = () => {
-    // Placeholder: In the future this will invoke a GraphQL mutation to generate questions via LLM
-    alert('Auto-generate will invoke the configured LLM to produce a question and expected answer. This feature requires the backend GraphQL mutation to be connected.');
+  const [generating, setGenerating] = useState<string | null>(null);
+
+  const handleAutoGenerate = async (posKey: string, tileType: string) => {
+    setGenerating(posKey);
+    try {
+      // c3 (Memento) is map-dependent — generate locally from grid
+      if (tileType === 'c3') {
+        const c3Questions = getQuestionsForTileType('c3');
+        if (c3Questions.length > 0) {
+          const entry = c3Questions[Math.floor(Math.random() * c3Questions.length)];
+          const computed = computeC3Answer(entry.question, grid);
+          onChallengesChange({
+            ...challenges,
+            [posKey]: {
+              type: tileType,
+              question: entry.question,
+              expectedAnswer: computed ?? '(could not compute)',
+              gradingStrategy: entry.gradingStrategy,
+            },
+          });
+        } else {
+          alert('No Memento questions available for this map.');
+        }
+        return;
+      }
+
+      const { generateChallenge } = await import('../../services/graphqlClient');
+      const result = await generateChallenge(tileType, tileType === 'c6' ? grid : undefined);
+      const gen = result.GenerateChallenge;
+
+      const updatedChallenges = {
+        ...challenges,
+        [posKey]: {
+          type: tileType,
+          question: gen.question,
+          expectedAnswer: gen.expectedAnswer,
+          gradingStrategy: gen.gradingStrategy,
+        },
+      };
+
+      // If there's a paired challenge (key/door), find the matching tile and populate it
+      if (gen.pairedTileType && gen.pairedQuestion && gen.pairedExpectedAnswer) {
+        const pairedPos = challengePositions.find((p) => p.type === gen.pairedTileType);
+        if (pairedPos) {
+          updatedChallenges[pairedPos.key] = {
+            type: gen.pairedTileType,
+            question: gen.pairedQuestion,
+            expectedAnswer: gen.pairedExpectedAnswer,
+            gradingStrategy: gen.pairedGradingStrategy || 'exact_match',
+          };
+        }
+      }
+
+      onChallengesChange(updatedChallenges);
+    } catch (err) {
+      alert(`Failed to generate challenge: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setGenerating(null);
+    }
   };
 
   if (challengePositions.length === 0) {
@@ -141,7 +197,7 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
                           filteringType="auto"
                         />
                       </div>
-                      <Button onClick={handleAutoGenerate} iconName="gen-ai">
+                      <Button onClick={() => handleAutoGenerate(posKey, type)} iconName="gen-ai" loading={generating === posKey}>
                         Auto-Generate
                       </Button>
                     </SpaceBetween>
@@ -158,10 +214,11 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
                 </FormField>
 
                 <FormField label="Expected Answer">
-                  <Input
+                  <Textarea
                     value={assignment.expectedAnswer}
                     onChange={({ detail }) => updateChallenge(posKey, type, { expectedAnswer: detail.value })}
                     placeholder="Enter the expected answer..."
+                    rows={2}
                   />
                 </FormField>
 

@@ -551,8 +551,24 @@ def run_game_session_v2(
     status = "completed"
 
     # Emit initial events matching reference app pattern
-    player_start = map_data.get("playerStart", {"row": 0, "col": 0})
-    start_pos_event = {"row": player_start["row"], "col": player_start["col"]}
+    player_start = map_data.get("playerStart")
+    if not isinstance(player_start, dict) or "row" not in player_start or "col" not in player_start:
+        # Scan grid for the 'start' tile
+        player_start = None
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row):
+                if cell == "start":
+                    player_start = {"row": r, "col": c}
+                    break
+            else:
+                continue
+            break
+    if not player_start:
+        player_start = {"row": 0, "col": 0}
+    try:
+        start_pos_event = {"row": int(player_start["row"]), "col": int(player_start["col"])}
+    except (TypeError, ValueError):
+        start_pos_event = {"row": 0, "col": 0}
     # InputPrompt: shows the full navigation prompt (fixed + user) in the combat log
     game_events.append({
         "type": "InputPrompt",

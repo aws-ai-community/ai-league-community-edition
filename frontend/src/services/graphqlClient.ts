@@ -846,3 +846,32 @@ export async function createModel(config: { name: string; resourceIdentifier: st
     pathfindingPromptStrategy: config.pathfindingPromptStrategy ?? null,
   }, true);
 }
+
+export interface GenerateChallengeResponse {
+  question: string;
+  expectedAnswer: string;
+  gradingStrategy: string;
+  url?: string;
+  pairedQuestion?: string;
+  pairedExpectedAnswer?: string;
+  pairedGradingStrategy?: string;
+  pairedTileType?: string;
+}
+
+export async function generateChallenge(tileType: string, grid?: string[][]): Promise<{ GenerateChallenge: GenerateChallengeResponse }> {
+  const query = `
+    mutation GenerateChallenge($tileType: String!, $grid: [[String]]) {
+      GenerateChallenge(tileType: $tileType, grid: $grid) {
+        question
+        expectedAnswer
+        gradingStrategy
+        url
+        pairedQuestion
+        pairedExpectedAnswer
+        pairedGradingStrategy
+        pairedTileType
+      }
+    }
+  `;
+  return graphqlRequest<{ GenerateChallenge: GenerateChallengeResponse }>(query, { tileType, grid: grid || null }, true);
+}
