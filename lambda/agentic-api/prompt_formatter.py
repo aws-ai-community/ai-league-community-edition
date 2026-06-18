@@ -84,7 +84,19 @@ def format_navigation_prompt(map_data: Dict[str, Any]) -> str:
     Returns:
         The navigation prompt string to send to the AgentCore Runtime.
     """
-    player_start = map_data.get("playerStart", {"row": 0, "col": 0})
+    player_start = map_data.get("playerStart")
+    if not player_start:
+        # Scan grid for the 'start' tile position
+        grid = map_data.get("grid", [])
+        player_start = {"row": 0, "col": 0}
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row):
+                if cell == "start":
+                    player_start = {"row": r, "col": c}
+                    break
+            else:
+                continue
+            break
     start_label = coords_to_label(player_start["row"], player_start["col"])
     grid = map_data.get("grid", [])
     grid_json = json.dumps(grid)

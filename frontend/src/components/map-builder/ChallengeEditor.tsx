@@ -82,7 +82,7 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
 
   const handleAutoGenerate = () => {
     // Placeholder: In the future this will invoke a GraphQL mutation to generate questions via LLM
-    alert('Auto-generate will invoke the configured LLM to produce a question and expected answer. This feature requires the backend GraphQL mutation to be connected.');
+    alert('Auto-generate is not yet implemented. Please manually enter a question and expected answer for this challenge.');
   };
 
   if (challengePositions.length === 0) {

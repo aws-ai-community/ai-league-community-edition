@@ -32,7 +32,7 @@ export default function MapSettings() {
           />
         </FormField>
 
-        <FormField label="Time Limit (minutes)">
+        <FormField label="Time Limit (seconds)">
           <Input
             type="number"
             value={String(timeLimit)}
