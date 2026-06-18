@@ -388,8 +388,10 @@ def _generate_web_scraping() -> dict:
         f"Given this webpage content from {url}, generate a factual question "
         f"whose answer can be found directly in the text. The answer should be "
         f"a short phrase (1-10 words) that appears in or is directly derivable from the content.\n\n"
+        f"IMPORTANT: The question MUST include the URL so the reader knows where to find the answer.\n"
+        f"Format the question as: 'From the page at {url} — [your question]?'\n\n"
         f"Webpage content:\n{content}\n\n"
-        f"Output ONLY a JSON object: {{\"question\": \"...\", \"answer\": \"...\"}}\n"
+        f"Output ONLY a JSON object: {{\"question\": \"From the page at {url} — ...\", \"answer\": \"...\"}}\n"
         f"No markdown, no explanation."
     )
     qa_text = _bedrock_generate(qa_prompt, max_tokens=512)
