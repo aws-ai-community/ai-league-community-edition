@@ -520,7 +520,8 @@ export default function AgentBuilderPage() {
           .map((f) => ({
             type: f.type,
             inputStrength: f.inputEnabled ? f.inputStrength : 'NONE',
-            outputStrength: f.outputEnabled ? f.outputStrength : 'NONE',
+            // PROMPT_ATTACK output strength must always be NONE per Bedrock API
+            outputStrength: f.type === 'PROMPT_ATTACK' ? 'NONE' : (f.outputEnabled ? f.outputStrength : 'NONE'),
           })),
       };
       if (guardrailDenyTopics.length > 0) {
@@ -1292,13 +1293,18 @@ export default function AgentBuilderPage() {
                         setGuardrailContentFilters((prev) =>
                           prev.map((f) =>
                             f.type === filter.type
-                              ? { ...f, inputEnabled: detail.checked, outputEnabled: detail.checked }
+                              ? {
+                                  ...f,
+                                  inputEnabled: detail.checked,
+                                  // PROMPT_ATTACK output must always be NONE per Bedrock API
+                                  outputEnabled: filter.type === 'PROMPT_ATTACK' ? false : detail.checked,
+                                }
                               : f
                           )
                         );
                       }}
                     >
-                      {filter.label}
+                      {filter.label}{filter.type === 'PROMPT_ATTACK' ? ' (input only)' : ''}
                     </Toggle>
                   </SpaceBetween>
                   {(filter.inputEnabled || filter.outputEnabled) && (
@@ -1324,27 +1330,29 @@ export default function AgentBuilderPage() {
                           ariaLabel={`Input strength for ${filter.type}`}
                         />
                       </FormField>
-                      <FormField label="Output Strength">
-                        <Select
-                          selectedOption={{ label: filter.outputStrength, value: filter.outputStrength }}
-                          onChange={({ detail }) => {
-                            setGuardrailContentFilters((prev) =>
-                              prev.map((f) =>
-                                f.type === filter.type
-                                  ? { ...f, outputStrength: detail.selectedOption.value || 'MEDIUM' }
-                                  : f
-                              )
-                            );
-                          }}
-                          options={[
-                            { label: 'NONE', value: 'NONE' },
-                            { label: 'LOW', value: 'LOW' },
-                            { label: 'MEDIUM', value: 'MEDIUM' },
-                            { label: 'HIGH', value: 'HIGH' },
-                          ]}
-                          ariaLabel={`Output strength for ${filter.type}`}
-                        />
-                      </FormField>
+                      {filter.type !== 'PROMPT_ATTACK' && (
+                        <FormField label="Output Strength">
+                          <Select
+                            selectedOption={{ label: filter.outputStrength, value: filter.outputStrength }}
+                            onChange={({ detail }) => {
+                              setGuardrailContentFilters((prev) =>
+                                prev.map((f) =>
+                                  f.type === filter.type
+                                    ? { ...f, outputStrength: detail.selectedOption.value || 'MEDIUM' }
+                                    : f
+                                )
+                              );
+                            }}
+                            options={[
+                              { label: 'NONE', value: 'NONE' },
+                              { label: 'LOW', value: 'LOW' },
+                              { label: 'MEDIUM', value: 'MEDIUM' },
+                              { label: 'HIGH', value: 'HIGH' },
+                            ]}
+                            ariaLabel={`Output strength for ${filter.type}`}
+                          />
+                        </FormField>
+                      )}
                     </SpaceBetween>
                   )}
                 </SpaceBetween>
