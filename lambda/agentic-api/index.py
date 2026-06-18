@@ -19,6 +19,7 @@ from boto3.dynamodb.conditions import Key, Attr
 import game_runner
 import agent_config_handlers
 import prompt_formatter
+import challenge_generator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -129,6 +130,7 @@ def handler(event, context):
         "CreateGuardrail": agent_config_handlers.handle_create_guardrail,
         "DeleteGuardrail": agent_config_handlers.handle_delete_guardrail,
         "CreateModel": agent_config_handlers.handle_create_model,
+        "GenerateChallenge": challenge_generator.handle_generate_challenge,
         # Phase 3 Mutations
         "StartCodeEditor": agent_config_handlers.handle_start_code_editor,
         "StopCodeEditor": agent_config_handlers.handle_stop_code_editor,

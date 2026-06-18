@@ -1082,6 +1082,10 @@ def handler(event, context):
       typeName: 'Mutation',
       fieldName: 'CreateModel',
     });
+    agenticDataSource.createResolver('GenerateChallengeResolver', {
+      typeName: 'Mutation',
+      fieldName: 'GenerateChallenge',
+    });
 
     // Profile API Lambda function (TypeScript bundled with esbuild)
     const profileLambda = new lambdaNodejs.NodejsFunction(this, 'ProfileApiLambda', {

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import FormField from '@cloudscape-design/components/form-field';
@@ -80,9 +80,28 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
     });
   };
 
-  const handleAutoGenerate = () => {
-    // Placeholder: In the future this will invoke a GraphQL mutation to generate questions via LLM
-    alert('Auto-generate is not yet implemented. Please manually enter a question and expected answer for this challenge.');
+  const [generating, setGenerating] = useState<string | null>(null);
+
+  const handleAutoGenerate = async (posKey: string, tileType: string) => {
+    setGenerating(posKey);
+    try {
+      const { generateChallenge } = await import('../../services/graphqlClient');
+      const result = await generateChallenge(tileType);
+      const gen = result.GenerateChallenge;
+      onChallengesChange({
+        ...challenges,
+        [posKey]: {
+          type: tileType,
+          question: gen.question,
+          expectedAnswer: gen.expectedAnswer,
+          gradingStrategy: gen.gradingStrategy,
+        },
+      });
+    } catch (err) {
+      alert(`Failed to generate challenge: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setGenerating(null);
+    }
   };
 
   if (challengePositions.length === 0) {
@@ -141,7 +160,7 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
                           filteringType="auto"
                         />
                       </div>
-                      <Button onClick={handleAutoGenerate} iconName="gen-ai">
+                      <Button onClick={() => handleAutoGenerate(posKey, type)} iconName="gen-ai" loading={generating === posKey}>
                         Auto-Generate
                       </Button>
                     </SpaceBetween>
