@@ -410,9 +410,9 @@ export const PREDEFINED_MAPS: PredefinedMap[] = [
     challenges: buildChallenges(LONDON_FINALE_3_GRID, LONDON_FINALE_3_QUESTIONS),
   },
   {
-    label: 'NYC Summit Round 1 (10×10, 300s)',
+    label: 'NYC Summit Round 1 (10×10, 180s)',
     size: 10,
-    time: 300,
+    time: 180,
     startRow: 2,
     startCol: 0,
     grid: NYC_ROUND_1_GRID,
@@ -437,9 +437,9 @@ export const PREDEFINED_MAPS: PredefinedMap[] = [
     },
   },
   {
-    label: 'NYC Finale 1 (6×6, 300s)',
+    label: 'NYC Finale 1 (6×6, 60s)',
     size: 6,
-    time: 300,
+    time: 60,
     startRow: 0,
     startCol: 0,
     grid: NYC_FINALE_1_GRID,
