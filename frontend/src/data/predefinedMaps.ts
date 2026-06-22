@@ -437,9 +437,9 @@ export const PREDEFINED_MAPS: PredefinedMap[] = [
     },
   },
   {
-    label: 'NYC Finale 1 (6×6, 60s)',
+    label: 'NYC Finale 1 (6×6, 45s)',
     size: 6,
-    time: 60,
+    time: 45,
     startRow: 0,
     startCol: 0,
     grid: NYC_FINALE_1_GRID,
