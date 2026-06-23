@@ -57,7 +57,7 @@ def compute_token_bonus(
     reduction = get_custom_model_reduction(num_custom_models)
     penalty = (total_tokens / challenges_visited) * (1.0 - reduction)
     bonus = token_bonus_base - penalty
-    return max(0.0, min(bonus, token_bonus_base))
+    return round(max(0.0, min(bonus, token_bonus_base)))
 
 
 def compute_final_score(

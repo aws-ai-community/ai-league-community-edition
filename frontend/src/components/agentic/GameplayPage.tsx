@@ -1000,11 +1000,15 @@ export default function GameplayPage() {
             <Box variant="p"><strong>Life Bonus:</strong></Box>
             <Box variant="p">{scoreSummary?.lifeBonusScore ?? 0}</Box>
             <Box variant="p"><strong>Token Bonus:</strong></Box>
-            <Box variant="p">{scoreSummary?.givenTokenBonus ?? 0}</Box>
+            <Box variant="p">{Math.round(scoreSummary?.givenTokenBonus ?? 0)}</Box>
             <Box variant="p"><strong>Treasure Bonus:</strong></Box>
             <Box variant="p">{scoreSummary?.treasureBonus ?? 0}</Box>
             <Box variant="p"><strong>Challenges Attempted:</strong></Box>
             <Box variant="p">{scoreSummary?.challengesAttempted ?? 0}</Box>
+            <Box variant="p"><strong>Tokens Per Challenge:</strong></Box>
+            <Box variant="p">{(scoreSummary?.challengesAttempted ?? 0) > 0 ? Math.round((scoreSummary?.tokensUsed ?? 0) / (scoreSummary?.challengesAttempted ?? 1)) : 0}</Box>
+            <Box variant="p"><strong>Total Tokens:</strong></Box>
+            <Box variant="p">{scoreSummary?.tokensUsed ?? 0}</Box>
             <Box variant="p"><strong>Lives Remaining:</strong></Box>
             <Box variant="p">{scoreSummary?.livesRemaining ?? 0}</Box>
           </div>
