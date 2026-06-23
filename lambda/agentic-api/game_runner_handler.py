@@ -67,7 +67,7 @@ def handler(event, context):
             start_pos = (0, 0)
 
         for attempt in range(3):
-            agent_response = invoke_agent_runtime(
+            agent_response, _usage = invoke_agent_runtime(
                 runtime_arn=runtime_arn,
                 payload=invoke_payload,
                 timeout=90,
