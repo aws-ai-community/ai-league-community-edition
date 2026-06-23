@@ -680,7 +680,7 @@ def handle_submit_to_leaderboard(arguments, event):
             current_best = int(float(existing.get("bestScore", 0)))
             update_expr = (
                 "SET lastScore = :lastScore, "
-                "totalSubmissions = totalSubmissions + :inc, "
+                "totalSubmissions = if_not_exists(totalSubmissions, :zero) + :inc, "
                 "updatedAt = :updatedAt, "
                 "modelId = :modelId, "
                 "alias = :alias, "
@@ -689,6 +689,7 @@ def handle_submit_to_leaderboard(arguments, event):
             expr_values = {
                 ":lastScore": final_score,
                 ":inc": 1,
+                ":zero": 0,
                 ":updatedAt": now,
                 ":modelId": model_id,
                 ":alias": user_alias,
