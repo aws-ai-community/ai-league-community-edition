@@ -176,6 +176,7 @@ export class CdkStack extends cdk.Stack {
         SUBMISSIONS_TABLE: agenticSubmissionsTable.tableName,
         AGENT_CONFIGURATIONS_TABLE: agentConfigurationsTable.tableName,
         MAPS_TABLE: mapsTable.tableName,
+        USER_PROFILES_TABLE: userProfilesTable.tableName,
       },
     });
 
@@ -275,6 +276,7 @@ export class CdkStack extends cdk.Stack {
     agenticSubmissionsTable.grantReadWriteData(agenticLambda);
     agentConfigurationsTable.grantReadWriteData(agenticLambda);
     mapsTable.grantReadWriteData(agenticLambda);
+    userProfilesTable.grantReadData(agenticLambda);
 
     // Grant Lambda permission to invoke Bedrock models
     agenticLambda.addToRolePolicy(

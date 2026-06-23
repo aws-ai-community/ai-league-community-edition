@@ -619,6 +619,21 @@ def handle_submit_to_leaderboard(arguments, event):
     map_id = session.get("mapId", "")
     now = _now_iso()
 
+    # Load user profile for alias and avatar
+    user_alias = user_id
+    user_avatar = None
+    try:
+        profiles_table_name = os.environ.get("USER_PROFILES_TABLE", "")
+        if profiles_table_name:
+            profiles_table = dynamodb.Table(profiles_table_name)
+            profile_response = profiles_table.get_item(Key={"userId": user_id})
+            profile = profile_response.get("Item")
+            if profile:
+                user_alias = profile.get("displayName") or user_id
+                user_avatar = profile.get("avatar")
+    except Exception as e:
+        logger.warning(f"Failed to load user profile for leaderboard: {e}")
+
     # Load SUPERVISOR config for the user (Requirement 16.1)
     supervisor_config = {}
     try:
@@ -667,13 +682,17 @@ def handle_submit_to_leaderboard(arguments, event):
                 "SET lastScore = :lastScore, "
                 "totalSubmissions = totalSubmissions + :inc, "
                 "updatedAt = :updatedAt, "
-                "modelId = :modelId"
+                "modelId = :modelId, "
+                "alias = :alias, "
+                "avatar = :avatar"
             )
             expr_values = {
                 ":lastScore": final_score,
                 ":inc": 1,
                 ":updatedAt": now,
                 ":modelId": model_id,
+                ":alias": user_alias,
+                ":avatar": user_avatar,
             }
 
             if final_score > current_best:
@@ -692,8 +711,8 @@ def handle_submit_to_leaderboard(arguments, event):
                 "leaderboardId": leaderboard_id,
                 "sk": sk,
                 "userId": user_id,
-                "alias": user_id,
-                "avatar": None,
+                "alias": user_alias,
+                "avatar": user_avatar,
                 "bestScore": final_score,
                 "lastScore": final_score,
                 "totalSubmissions": 1,
