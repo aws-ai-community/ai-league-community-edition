@@ -847,6 +847,133 @@ export async function createModel(config: { name: string; resourceIdentifier: st
   }, true);
 }
 
+// --- Fine-Tuning Types and Helpers ---
+
+export interface TrainingArtifactUrlResponse {
+  url: string;
+  expiresIn: number;
+}
+
+export async function getTrainingArtifactUrl(artifactKey: string): Promise<{ GetTrainingArtifactUrl: TrainingArtifactUrlResponse }> {
+  const query = `
+    query GetTrainingArtifactUrl($artifactKey: String!) {
+      GetTrainingArtifactUrl(artifactKey: $artifactKey) {
+        url
+        expiresIn
+      }
+    }
+  `;
+  return graphqlRequest<{ GetTrainingArtifactUrl: TrainingArtifactUrlResponse }>(query, { artifactKey }, true);
+}
+
+// --- Fine-Tuning Types and Helpers ---
+
+export interface CustomModelResponse {
+  modelId: string;
+  userId: string | null;
+  name: string;
+  trainingJobArn: string;
+  deploymentArn: string | null;
+  status: string;
+  baseModelId: string | null;
+  failureReason: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function registerCustomModel(name: string, trainingJobArn: string): Promise<{ RegisterCustomModel: CustomModelResponse }> {
+  const query = `
+    mutation RegisterCustomModel($name: String!, $trainingJobArn: String!) {
+      RegisterCustomModel(name: $name, trainingJobArn: $trainingJobArn) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ RegisterCustomModel: CustomModelResponse }>(query, { name, trainingJobArn }, true);
+}
+
+export async function listCustomModels(): Promise<{ ListCustomModels: CustomModelResponse[] }> {
+  const query = `
+    query ListCustomModels {
+      ListCustomModels {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ ListCustomModels: CustomModelResponse[] }>(query, undefined, true);
+}
+
+export async function deployCustomModel(modelId: string): Promise<{ DeployCustomModel: CustomModelResponse }> {
+  const query = `
+    mutation DeployCustomModel($modelId: String!) {
+      DeployCustomModel(modelId: $modelId) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ DeployCustomModel: CustomModelResponse }>(query, { modelId }, true);
+}
+
+export async function deleteCustomModel(modelId: string, force?: boolean): Promise<{ DeleteCustomModel: MutationResponse }> {
+  const query = `
+    mutation DeleteCustomModel($modelId: String!, $force: Boolean) {
+      DeleteCustomModel(modelId: $modelId, force: $force) {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ DeleteCustomModel: MutationResponse }>(query, { modelId, force: force ?? null }, true);
+}
+
+export async function getCustomModelStatus(modelId: string): Promise<{ GetCustomModelStatus: CustomModelResponse }> {
+  const query = `
+    query GetCustomModelStatus($modelId: String!) {
+      GetCustomModelStatus(modelId: $modelId) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ GetCustomModelStatus: CustomModelResponse }>(query, { modelId }, true);
+}
+
 export interface GenerateChallengeResponse {
   question: string;
   expectedAnswer: string;

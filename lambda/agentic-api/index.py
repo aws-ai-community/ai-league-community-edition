@@ -20,6 +20,7 @@ import game_runner
 import agent_config_handlers
 import prompt_formatter
 import challenge_generator
+import fine_tuning_handlers
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -137,6 +138,13 @@ def handler(event, context):
         "ResetConfiguration": agent_config_handlers.handle_reset_configuration,
         "SaveSchemaModelConfig": agent_config_handlers.handle_save_schema_model_config,
         "RegenerateToolSchema": agent_config_handlers.handle_regenerate_tool_schema,
+        # Fine-Tuning operations
+        "ListCustomModels": fine_tuning_handlers.handle_list_custom_models,
+        "GetCustomModelStatus": fine_tuning_handlers.handle_get_custom_model_status,
+        "GetTrainingArtifactUrl": fine_tuning_handlers.handle_get_training_artifact_url,
+        "RegisterCustomModel": fine_tuning_handlers.handle_register_custom_model,
+        "DeployCustomModel": fine_tuning_handlers.handle_deploy_custom_model,
+        "DeleteCustomModel": fine_tuning_handlers.handle_delete_custom_model,
     }
 
     handler_fn = handlers.get(field_name)

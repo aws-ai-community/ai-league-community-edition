@@ -10,6 +10,7 @@ vi.mock('../../../services/graphqlClient', () => ({
   listMemoryTools: vi.fn(),
   listGuardrailTools: vi.fn(),
   listAgentVersions: vi.fn(),
+  listCustomModels: vi.fn(),
   createSubAgent: vi.fn(),
   updateSubAgent: vi.fn(),
   deleteSubAgent: vi.fn(),
@@ -29,6 +30,7 @@ import {
   listMemoryTools,
   listGuardrailTools,
   listAgentVersions,
+  listCustomModels,
 } from '../../../services/graphqlClient';
 
 const mockGetSupervisorAgent = vi.mocked(getSupervisorAgent);
@@ -38,6 +40,7 @@ const mockListLambdaTools = vi.mocked(listLambdaTools);
 const mockListMemoryTools = vi.mocked(listMemoryTools);
 const mockListGuardrailTools = vi.mocked(listGuardrailTools);
 const mockListAgentVersions = vi.mocked(listAgentVersions);
+const mockListCustomModels = vi.mocked(listCustomModels);
 
 describe('AgentBuilderPage', () => {
   beforeEach(() => {
@@ -82,6 +85,9 @@ describe('AgentBuilderPage', () => {
     });
     mockListAgentVersions.mockResolvedValue({
       ListAgentVersions: [],
+    });
+    mockListCustomModels.mockResolvedValue({
+      ListCustomModels: [],
     });
     mockUpdateSupervisorAgent.mockResolvedValue({
       UpdateSupervisorAgent: {

@@ -700,6 +700,137 @@ def handler(event, context):
     }));
 
     // ========================================================================
+    // S3 Training Artifacts Bucket (Fine-Tuning Feature)
+    // ========================================================================
+
+    // S3 bucket for training artifacts (sample data for fine-tuning)
+    const trainingArtifactsBucket = new s3.Bucket(this, 'TrainingArtifactsBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        { expiration: cdk.Duration.days(365) },
+      ],
+    });
+
+    // Deploy sample training artifacts to S3
+    new s3deploy.BucketDeployment(this, 'DeployTrainingArtifacts', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../../sample-training-artifacts'))],
+      destinationBucket: trainingArtifactsBucket,
+      destinationKeyPrefix: 'samples',
+    });
+
+    // Export training artifacts bucket name to the agentic-api Lambda
+    agenticLambda.addEnvironment('TRAINING_ARTIFACTS_BUCKET', trainingArtifactsBucket.bucketName);
+
+    // Grant Lambda read access to generate pre-signed URLs for sample artifacts
+    trainingArtifactsBucket.grantRead(agenticLambda);
+
+    // Grant Lambda permissions for Bedrock Custom Model Deployment operations (Fine-Tuning)
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:CreateCustomModelDeployment',
+        'bedrock:GetCustomModelDeployment',
+        'bedrock:DeleteCustomModelDeployment',
+        'bedrock:ListCustomModelDeployments',
+      ],
+      resources: ['*'],
+    }));
+
+    // Grant Lambda permissions for SageMaker DescribeTrainingJob (Fine-Tuning ARN validation)
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sagemaker:DescribeTrainingJob'],
+      resources: [`arn:aws:sagemaker:${this.region}:${this.account}:training-job/*`],
+    }));
+
+    // ========================================================================
+    // Custom Resource: Cleanup Custom Model Deployments on Stack Destroy
+    // ========================================================================
+
+    const cleanupCustomModelsFn = new lambda.Function(this, 'CleanupCustomModelDeployments', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(10),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+
+def handler(event, context):
+    """On Delete: scan for all CUSTOMMODEL# records, delete Bedrock deployments and DynamoDB records."""
+    try:
+        if event['RequestType'] == 'Delete':
+            table_name = event['ResourceProperties']['TableName']
+            dynamodb = boto3.resource('dynamodb')
+            table = dynamodb.Table(table_name)
+            bedrock = boto3.client('bedrock')
+
+            # Scan for all CUSTOMMODEL# records across all users
+            items = []
+            scan_kwargs = {
+                'FilterExpression': 'begins_with(sk, :prefix)',
+                'ExpressionAttributeValues': {':prefix': 'CUSTOMMODEL#'}
+            }
+            while True:
+                resp = table.scan(**scan_kwargs)
+                items.extend(resp.get('Items', []))
+                if 'LastEvaluatedKey' not in resp:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = resp['LastEvaluatedKey']
+
+            # Delete each Bedrock deployment and DynamoDB record (best-effort)
+            for item in items:
+                deployment_arn = item.get('deploymentArn')
+                if deployment_arn:
+                    try:
+                        bedrock.delete_custom_model_deployment(
+                            customModelDeploymentIdentifier=deployment_arn)
+                        print(f'Deleted deployment: {deployment_arn}')
+                    except Exception as e:
+                        print(f'Warning: failed to delete deployment {deployment_arn}: {e}')
+                try:
+                    table.delete_item(Key={'userId': item['userId'], 'sk': item['sk']})
+                    print(f'Deleted record: {item["userId"]}/{item["sk"]}')
+                except Exception as e:
+                    print(f'Warning: failed to delete record {item.get("userId")}/{item.get("sk")}: {e}')
+
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error during custom model cleanup: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+
+    // Grant cleanup Lambda permissions to scan and delete from AgentConfigurations table
+    cleanupCustomModelsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['dynamodb:Scan', 'dynamodb:DeleteItem'],
+      resources: [agentConfigurationsTable.tableArn],
+    }));
+
+    // Grant cleanup Lambda permissions for Bedrock Custom Model Deployment operations
+    cleanupCustomModelsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:DeleteCustomModelDeployment', 'bedrock:ListCustomModelDeployments'],
+      resources: ['*'],
+    }));
+
+    const cleanupCustomModelsProvider = new cr.Provider(this, 'CleanupCustomModelsProvider', {
+      onEventHandler: cleanupCustomModelsFn,
+    });
+
+    const cleanupCustomModelsResource = new cdk.CustomResource(this, 'CustomModelCleanup', {
+      serviceToken: cleanupCustomModelsProvider.serviceToken,
+      properties: {
+        TableName: agentConfigurationsTable.tableName,
+        // Force update on each deploy so the cleanup always has fresh table reference
+        Timestamp: Date.now().toString(),
+      },
+    });
+
+    // Ensure cleanup runs before DynamoDB table deletion on stack destroy
+    cleanupCustomModelsResource.node.addDependency(agentConfigurationsTable);
+
+    // ========================================================================
     // EventBridge, CloudTrail, Schema Generator & Auto-Shutdown Lambdas
     // ========================================================================
 
@@ -1087,6 +1218,34 @@ def handler(event, context):
     agenticDataSource.createResolver('GenerateChallengeResolver', {
       typeName: 'Mutation',
       fieldName: 'GenerateChallenge',
+    });
+
+    // Fine-Tuning Query resolvers
+    agenticDataSource.createResolver('ListCustomModelsResolver', {
+      typeName: 'Query',
+      fieldName: 'ListCustomModels',
+    });
+    agenticDataSource.createResolver('GetCustomModelStatusResolver', {
+      typeName: 'Query',
+      fieldName: 'GetCustomModelStatus',
+    });
+    agenticDataSource.createResolver('GetTrainingArtifactUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetTrainingArtifactUrl',
+    });
+
+    // Fine-Tuning Mutation resolvers
+    agenticDataSource.createResolver('RegisterCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'RegisterCustomModel',
+    });
+    agenticDataSource.createResolver('DeployCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeployCustomModel',
+    });
+    agenticDataSource.createResolver('DeleteCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteCustomModel',
     });
 
     // Profile API Lambda function (TypeScript bundled with esbuild)

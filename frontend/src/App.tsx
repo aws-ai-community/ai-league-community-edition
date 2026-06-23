@@ -26,6 +26,7 @@ import LeaderboardPage from './components/agentic/LeaderboardPage';
 import SubmissionHistoryPage from './components/agentic/SubmissionHistoryPage';
 import ConfigurationPage from './components/agentic/ConfigurationPage';
 import AgentBuilderPage from './components/agentic/AgentBuilderPage';
+import FineTuningPage from './components/agentic/FineTuningPage';
 import { getConfig } from './config';
 
 function LoginPage() {
@@ -195,6 +196,7 @@ function AuthenticatedApp() {
             <Route path="/submission-history" element={<SubmissionHistoryPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />
             <Route path="/agent-builder" element={<AgentBuilderPage />} />
+            <Route path="/fine-tuning" element={<FineTuningPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         }

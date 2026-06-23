@@ -35,12 +35,14 @@ import {
   deleteMemory,
   createGuardrail,
   deleteGuardrail,
+  listCustomModels,
   SupervisorAgentConfig,
   SubAgentConfig,
   LambdaToolConfig,
   MemoryToolConfig,
   GuardrailToolConfig,
   AgentVersionConfig,
+  CustomModelResponse,
 } from '../../services/graphqlClient';
 
 // --- Model definitions ---
@@ -59,7 +61,7 @@ const AVAILABLE_MODELS: ModelDefinition[] = [
 
 const DEFAULT_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
 
-function buildModelOptions(): SelectProps.Options {
+function buildModelOptions(customModels: CustomModelResponse[] = []): SelectProps.Options {
   const groups: Record<string, SelectProps.Option[]> = {};
   for (const model of AVAILABLE_MODELS) {
     if (!groups[model.provider]) {
@@ -71,16 +73,32 @@ function buildModelOptions(): SelectProps.Options {
       description: model.description,
     });
   }
+
+  // Add deployed custom models as a separate group
+  const deployedCustomModels = customModels.filter((m) => m.status === 'Deployed' && m.deploymentArn);
+  if (deployedCustomModels.length > 0) {
+    groups['Custom Models'] = deployedCustomModels.map((m) => ({
+      label: `${m.name} (Custom)`,
+      value: m.deploymentArn!,
+      tags: ['Fine-tuned'],
+    }));
+  }
+
   return Object.entries(groups).map(([provider, options]) => ({
     label: provider,
     options,
   }));
 }
 
-function findModelOption(modelId: string): SelectProps.Option | null {
+function findModelOption(modelId: string, customModels: CustomModelResponse[] = []): SelectProps.Option | null {
   const model = AVAILABLE_MODELS.find((m) => m.modelId === modelId);
-  if (!model) return null;
-  return { label: model.displayName, value: model.modelId };
+  if (model) return { label: model.displayName, value: model.modelId };
+
+  // Check custom models by deploymentArn
+  const customModel = customModels.find((m) => m.deploymentArn === modelId && m.status === 'Deployed');
+  if (customModel) return { label: `${customModel.name} (Custom)`, value: customModel.deploymentArn! };
+
+  return null;
 }
 
 const NONE_OPTION: SelectProps.Option = { label: 'None', value: '__none__' };
@@ -104,6 +122,7 @@ export default function AgentBuilderPage() {
   const [lambdaTools, setLambdaTools] = useState<LambdaToolConfig[]>([]);
   const [memoryTools, setMemoryTools] = useState<MemoryToolConfig[]>([]);
   const [guardrailTools, setGuardrailTools] = useState<GuardrailToolConfig[]>([]);
+  const [customModels, setCustomModels] = useState<CustomModelResponse[]>([]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -186,7 +205,7 @@ export default function AgentBuilderPage() {
     async function loadData() {
       setLoading(true);
       try {
-        const [supervisorRes, subAgentsRes, lambdaToolsRes, memoryToolsRes, guardrailToolsRes, versionsRes] =
+        const [supervisorRes, subAgentsRes, lambdaToolsRes, memoryToolsRes, guardrailToolsRes, versionsRes, customModelsRes] =
           await Promise.all([
             getSupervisorAgent(),
             listSubAgents(),
@@ -194,6 +213,7 @@ export default function AgentBuilderPage() {
             listMemoryTools(),
             listGuardrailTools(),
             listAgentVersions(),
+            listCustomModels(),
           ]);
 
         if (cancelled) return;
@@ -204,11 +224,13 @@ export default function AgentBuilderPage() {
         const fetchedMemoryTools = memoryToolsRes.ListMemory || [];
         const fetchedGuardrailTools = guardrailToolsRes.ListGuardrail || [];
         const fetchedVersions = versionsRes.ListAgentVersions || [];
+        const fetchedCustomModels = customModelsRes.ListCustomModels || [];
 
         setSubAgents(fetchedSubAgents);
         setLambdaTools(fetchedLambdaTools);
         setMemoryTools(fetchedMemoryTools);
         setGuardrailTools(fetchedGuardrailTools);
+        setCustomModels(fetchedCustomModels);
         // Sort versions by createdAt descending (most recent first)
         const sortedVersions = [...fetchedVersions].sort((a, b) => {
           const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -222,7 +244,7 @@ export default function AgentBuilderPage() {
         if (config) {
           setName(config.name || 'My Agent');
           setSystemPrompt(config.systemPrompt || '');
-          setSelectedModel(findModelOption(config.modelId) || findModelOption(DEFAULT_MODEL_ID));
+          setSelectedModel(findModelOption(config.modelId, fetchedCustomModels) || findModelOption(DEFAULT_MODEL_ID));
           setSelectedSubAgents(new Set(config.subAgents || []));
           setSelectedLambdaTools(new Set(config.lambdaTools || []));
 
@@ -320,7 +342,7 @@ export default function AgentBuilderPage() {
     setEditingSubAgentId(agent.agentId);
     setSubAgentFormName(agent.name);
     setSubAgentFormPrompt(agent.systemPrompt || '');
-    setSubAgentFormModel(findModelOption(agent.modelId) || findModelOption(DEFAULT_MODEL_ID));
+    setSubAgentFormModel(findModelOption(agent.modelId, customModels) || findModelOption(DEFAULT_MODEL_ID));
     setSubAgentFormTools(new Set(agent.lambdaTools || []));
     setShowSubAgentForm(true);
   };
@@ -589,7 +611,7 @@ export default function AgentBuilderPage() {
     ...guardrailTools.map((g) => ({ label: g.name, value: g.toolId, description: g.status || '' })),
   ];
 
-  const modelOptions = buildModelOptions();
+  const modelOptions = buildModelOptions(customModels);
 
   if (loading) {
     return (
@@ -750,7 +772,10 @@ export default function AgentBuilderPage() {
                     header: 'Model',
                     cell: (item) => {
                       const model = AVAILABLE_MODELS.find((m) => m.modelId === item.modelId);
-                      return model ? model.displayName : item.modelId;
+                      if (model) return model.displayName;
+                      const custom = customModels.find((m) => m.deploymentArn === item.modelId && m.status === 'Deployed');
+                      if (custom) return `${custom.name} (Custom)`;
+                      return item.modelId;
                     },
                   },
                   {
@@ -1540,7 +1565,7 @@ export default function AgentBuilderPage() {
                         )}
                         {config.modelId && (
                           <FormField label="Model">
-                            <Box>{AVAILABLE_MODELS.find((m) => m.modelId === config.modelId)?.displayName || config.modelId}</Box>
+                            <Box>{AVAILABLE_MODELS.find((m) => m.modelId === config.modelId)?.displayName || (customModels.find((m) => m.deploymentArn === config.modelId && m.status === 'Deployed')?.name ? `${customModels.find((m) => m.deploymentArn === config.modelId)?.name} (Custom)` : config.modelId)}</Box>
                           </FormField>
                         )}
                         {config.systemPrompt && (

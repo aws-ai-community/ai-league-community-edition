@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 import boto3
 from boto3.dynamodb.conditions import Key
 
+import fine_tuning_handlers
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -2105,6 +2107,10 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
     user_id = _get_user_id(event)
 
     try:
+        # Step 0: Delete all custom model deployments and records (best-effort)
+        # Must run BEFORE other cleanup to ensure Bedrock deployments are removed first
+        fine_tuning_handlers.handle_reset_custom_models(user_id)
+
         # Step 1: Delete all sub-agents except the default pathfinder
         sub_agents = agent_configurations_table.query(
             IndexName="GSI1",
