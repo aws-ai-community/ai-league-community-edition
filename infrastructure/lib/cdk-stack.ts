@@ -599,6 +599,7 @@ def handler(event, context):
         'lambda:GetFunctionConfiguration',
         'lambda:AddPermission',
         'lambda:RemovePermission',
+        'lambda:GetLayerVersion',
       ],
       resources: ['*'],
     }));
