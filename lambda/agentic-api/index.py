@@ -615,7 +615,7 @@ def handle_submit_to_leaderboard(arguments, event):
             "message": "Session must be completed before submission",
         }
 
-    final_score = float(session.get("finalScore", 0))
+    final_score = int(float(session.get("finalScore", 0)))
     map_id = session.get("mapId", "")
     now = _now_iso()
 
@@ -638,7 +638,7 @@ def handle_submit_to_leaderboard(arguments, event):
             "sk": f"VERSION#{leaderboard_id}#{version_id}",
             "versionId": version_id,
             "name": supervisor_config.get("name", ""),
-            "supervisorConfig": json.dumps(supervisor_config),
+            "supervisorConfig": json.dumps(supervisor_config, default=_decimal_default),
             "finalScore": final_score,
             "subAgentCount": len(supervisor_config.get("subAgents", [])),
             "gsi1pk": f"USER#{user_id}",
@@ -662,7 +662,7 @@ def handle_submit_to_leaderboard(arguments, event):
 
         if existing:
             # Update: bestScore if higher, always update lastScore, increment totalSubmissions
-            current_best = float(existing.get("bestScore", 0))
+            current_best = int(float(existing.get("bestScore", 0)))
             update_expr = (
                 "SET lastScore = :lastScore, "
                 "totalSubmissions = totalSubmissions + :inc, "
