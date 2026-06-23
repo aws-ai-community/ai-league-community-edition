@@ -52,7 +52,7 @@ def compute_token_bonus(
     If challenges_visited is 0, the full token_bonus_base is returned (no penalty).
     """
     if challenges_visited <= 0:
-        return max(0.0, token_bonus_base)
+        return round(max(0.0, token_bonus_base))
 
     reduction = get_custom_model_reduction(num_custom_models)
     penalty = (total_tokens / challenges_visited) * (1.0 - reduction)

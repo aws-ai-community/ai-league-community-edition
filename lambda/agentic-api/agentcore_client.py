@@ -104,6 +104,7 @@ def invoke_agent_runtime(
             else:
                 raw = str(response_stream)
 
+            got_complete = False
             for line in raw.split("\n"):
                 line = line.strip()
                 if line.startswith("data: "):
@@ -112,18 +113,24 @@ def invoke_agent_runtime(
                         parsed = json.loads(data_str)
                         if "usage_summary" in parsed:
                             usage_info = parsed["usage_summary"]
+                            if got_complete:
+                                break
                         if "complete_message" in parsed:
                             agent_response = parsed["complete_message"]
-                        elif "data" in parsed and isinstance(parsed["data"], str):
+                            got_complete = True
+                            if usage_info:
+                                break
+                        elif not got_complete and "data" in parsed and isinstance(parsed["data"], str):
                             agent_response += parsed["data"]
                     except json.JSONDecodeError:
-                        if data_str.startswith('"') and data_str.endswith('"'):
-                            try:
-                                agent_response += json.loads(data_str)
-                            except json.JSONDecodeError:
-                                agent_response += data_str[1:-1]
-                        else:
-                            agent_response += data_str
+                        if not got_complete:
+                            if data_str.startswith('"') and data_str.endswith('"'):
+                                try:
+                                    agent_response += json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    agent_response += data_str[1:-1]
+                            else:
+                                agent_response += data_str
 
         return agent_response, usage_info
 

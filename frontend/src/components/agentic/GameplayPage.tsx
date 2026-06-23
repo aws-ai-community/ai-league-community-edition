@@ -57,6 +57,7 @@ interface GameEvent {
   // Score summary fields
   finalScore?: number;
   qaScore?: number;
+  challengeScore?: number;
   lifeBonusScore?: number;
   givenTokenBonus?: number;
   treasureBonus?: number;
@@ -994,7 +995,7 @@ export default function GameplayPage() {
           <Box variant="h3">Score Breakdown</Box>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <Box variant="p"><strong>Challenge Bonus:</strong></Box>
-            <Box variant="p">{scoreSummary?.qaScore ?? 0}</Box>
+            <Box variant="p">{scoreSummary?.challengeScore ?? scoreSummary?.qaScore ?? 0}</Box>
             <Box variant="p"><strong>Coin Bonus:</strong></Box>
             <Box variant="p">{scoreSummary?.coinBonus ?? 0}</Box>
             <Box variant="p"><strong>Life Bonus:</strong></Box>
