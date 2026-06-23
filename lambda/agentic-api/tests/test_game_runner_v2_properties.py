@@ -84,10 +84,11 @@ class TestTokenAccumulation:
 
         def mock_invoke(runtime_arn, payload=None, timeout=90, session_id=None, **kwargs):
             word_count = next(token_iter)
-            # Return a response with the specified number of words so
-            # max(1, len(answer.split())) produces a predictable token count
-            words = max(1, word_count)
-            return " ".join(["word"] * words)
+            tokens = max(1, word_count)
+            answer = " ".join(["word"] * tokens)
+            # Return tuple with real usage data
+            usage = {"total_usage": {"outputTokens": tokens, "inputTokens": 0, "totalTokens": tokens}}
+            return answer, usage
 
         # Mock the db_flush_fn (no-op for testing)
         flush_fn = MagicMock()
