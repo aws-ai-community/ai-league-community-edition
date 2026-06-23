@@ -300,7 +300,7 @@ def test_leaderboard_upsert_increments_total_submissions():
     # Verify update expression includes totalSubmissions increment
     update_call = mock_leaderboard_table.update_item.call_args
     update_expr = update_call[1]["UpdateExpression"]
-    assert "totalSubmissions = totalSubmissions + :inc" in update_expr
+    assert "totalSubmissions = if_not_exists(totalSubmissions, :zero) + :inc" in update_expr
     assert update_call[1]["ExpressionAttributeValues"][":inc"] == 1
 
 
