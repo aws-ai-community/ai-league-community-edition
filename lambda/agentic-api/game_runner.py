@@ -264,7 +264,6 @@ def run_game_session(
                             "type": "WinChallenge",
                             "challengeId": cell,
                             "challengePoints": pts,
-                            "points": score,
                             "position": {"row": r, "col": c},
                             "scoreAfter": score,
                             "livesAfter": lives,
@@ -326,7 +325,6 @@ def run_game_session(
                         "type": "WinChallenge",
                         "challengeId": cell,
                         "challengePoints": pts,
-                        "points": score,
                         "position": {"row": r, "col": c},
                         "scoreAfter": score,
                         "livesAfter": lives,
@@ -395,7 +393,6 @@ def run_game_session(
                         "type": "WinChallenge",
                         "challengeId": cell,
                         "challengePoints": pts,
-                        "points": score,
                         "position": {"row": r, "col": c},
                         "scoreAfter": score,
                         "livesAfter": lives,
@@ -450,11 +447,14 @@ def run_game_session(
         "type": "ScoreSummary",
         "position": last_pos,
         "livesRemaining": max(0, lives),
-        "lifeBonus": score_breakdown["lifeBonusScore"],
-        "coinsEarned": coin_points,
-        "tokenBonus": score_breakdown["givenTokenBonus"],
+        "lifeBonusScore": score_breakdown["lifeBonusScore"],
+        "coinBonus": coin_points,
+        "givenTokenBonus": score_breakdown["givenTokenBonus"],
         "treasureBonus": score_breakdown["treasureBonus"],
-        "totalScore": score_breakdown["finalScore"],
+        "finalScore": score_breakdown["finalScore"],
+        "qaScore": challenge_points,
+        "challengesAttempted": challenges_visited,
+        "tokensUsed": total_tokens,
         "customModelCount": custom_model_count,
     })
 
@@ -731,10 +731,10 @@ def run_game_session_v2(
                             "task_type": "challenge",
                             "session_id": session_id,
                         }
-                        answer = invoke_agent_runtime(
+                        answer, usage = invoke_agent_runtime(
                             runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                         )
-                        tokens_used = max(1, len(answer.split()))
+                        tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer.split()))
                         total_tokens += tokens_used
                     except AgentCoreTimeoutError:
                         logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
@@ -752,7 +752,6 @@ def run_game_session_v2(
                             "type": "WinChallenge",
                             "challengeId": cell,
                             "challengePoints": pts,
-                            "points": score,
                             "position": {"row": r, "col": c},
                             "scoreAfter": score,
                             "livesAfter": lives,
@@ -816,10 +815,10 @@ def run_game_session_v2(
                         "task_type": "challenge",
                         "session_id": session_id,
                     }
-                    answer = invoke_agent_runtime(
+                    answer, usage = invoke_agent_runtime(
                         runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                     )
-                    tokens_used = max(1, len(answer.split()))
+                    tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer.split()))
                     total_tokens += tokens_used
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on key challenge at (%d,%d)", r, c)
@@ -837,7 +836,6 @@ def run_game_session_v2(
                         "type": "WinChallenge",
                         "challengeId": cell,
                         "challengePoints": pts,
-                        "points": score,
                         "position": {"row": r, "col": c},
                         "scoreAfter": score,
                         "livesAfter": lives,
@@ -911,10 +909,10 @@ def run_game_session_v2(
                         "task_type": "challenge",
                         "session_id": session_id,
                     }
-                    answer = invoke_agent_runtime(
+                    answer, usage = invoke_agent_runtime(
                         runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                     )
-                    tokens_used = max(1, len(answer.split()))
+                    tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer.split()))
                     total_tokens += tokens_used
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
@@ -940,7 +938,6 @@ def run_game_session_v2(
                         "type": "WinChallenge",
                         "challengeId": cell,
                         "challengePoints": pts,
-                        "points": score,
                         "position": {"row": r, "col": c},
                         "scoreAfter": score,
                         "livesAfter": lives,
@@ -999,11 +996,14 @@ def run_game_session_v2(
         "type": "ScoreSummary",
         "position": last_pos,
         "livesRemaining": max(0, lives),
-        "lifeBonus": score_breakdown["lifeBonusScore"],
-        "coinsEarned": coin_points,
-        "tokenBonus": score_breakdown["givenTokenBonus"],
+        "lifeBonusScore": score_breakdown["lifeBonusScore"],
+        "coinBonus": coin_points,
+        "givenTokenBonus": score_breakdown["givenTokenBonus"],
         "treasureBonus": score_breakdown["treasureBonus"],
-        "totalScore": score_breakdown["finalScore"],
+        "finalScore": score_breakdown["finalScore"],
+        "qaScore": challenge_points,
+        "challengesAttempted": challenges_visited,
+        "tokensUsed": total_tokens,
         "customModelCount": custom_model_count,
     })
 
