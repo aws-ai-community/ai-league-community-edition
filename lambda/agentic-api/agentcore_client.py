@@ -13,7 +13,7 @@ import json
 import logging
 import signal
 import uuid
-from typing import Optional
+from typing import Optional, Tuple
 
 import boto3
 from botocore.config import Config
@@ -42,8 +42,8 @@ def invoke_agent_runtime(
     payload: dict,
     timeout: int = 90,
     session_id: Optional[str] = None,
-) -> str:
-    """Invoke AgentCore Runtime and return the text response.
+) -> Tuple[str, dict]:
+    """Invoke AgentCore Runtime and return the text response with usage info.
 
     Uses signal.SIGALRM for hard timeout enforcement (ported from reference
     app implementation).
@@ -55,7 +55,7 @@ def invoke_agent_runtime(
         session_id: Optional session ID for multi-turn conversations.
 
     Returns:
-        The agent's response text (str).
+        Tuple of (response_text, usage_info_dict).
 
     Raises:
         AgentCoreTimeoutError: If invocation exceeds timeout.
@@ -65,6 +65,8 @@ def invoke_agent_runtime(
         raise AgentCoreTimeoutError(
             f"AgentCore invocation timed out after {timeout}s"
         )
+
+    usage_info = {}
 
     old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
     signal.alarm(timeout)
@@ -102,27 +104,35 @@ def invoke_agent_runtime(
             else:
                 raw = str(response_stream)
 
+            got_complete = False
             for line in raw.split("\n"):
                 line = line.strip()
                 if line.startswith("data: "):
                     data_str = line[6:]
                     try:
                         parsed = json.loads(data_str)
+                        if "usage_summary" in parsed:
+                            usage_info = parsed["usage_summary"]
+                            if got_complete:
+                                break
                         if "complete_message" in parsed:
                             agent_response = parsed["complete_message"]
-                            break
-                        if "data" in parsed and isinstance(parsed["data"], str):
+                            got_complete = True
+                            if usage_info:
+                                break
+                        elif not got_complete and "data" in parsed and isinstance(parsed["data"], str):
                             agent_response += parsed["data"]
                     except json.JSONDecodeError:
-                        if data_str.startswith('"') and data_str.endswith('"'):
-                            try:
-                                agent_response += json.loads(data_str)
-                            except json.JSONDecodeError:
-                                agent_response += data_str[1:-1]
-                        else:
-                            agent_response += data_str
+                        if not got_complete:
+                            if data_str.startswith('"') and data_str.endswith('"'):
+                                try:
+                                    agent_response += json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    agent_response += data_str[1:-1]
+                            else:
+                                agent_response += data_str
 
-        return agent_response
+        return agent_response, usage_info
 
     except AgentCoreTimeoutError:
         raise

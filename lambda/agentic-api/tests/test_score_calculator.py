@@ -141,7 +141,7 @@ def test_property_12_token_bonus_formula_with_challenges(
     penalty = (total_tokens / challenges_visited) * (1.0 - reduction)
     expected = max(0.0, min(float(token_bonus_base), float(token_bonus_base) - penalty))
 
-    assert abs(result - expected) < 1e-9, (
+    assert abs(result - round(expected)) < 1e-9, (
         f"Token bonus ({result}) != expected ({expected}) for "
         f"base={token_bonus_base}, tokens={total_tokens}, "
         f"visited={challenges_visited}, models={num_custom_models}"

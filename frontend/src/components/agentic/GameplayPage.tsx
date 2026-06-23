@@ -57,10 +57,14 @@ interface GameEvent {
   // Score summary fields
   finalScore?: number;
   qaScore?: number;
+  challengeScore?: number;
   lifeBonusScore?: number;
   givenTokenBonus?: number;
   treasureBonus?: number;
   livesRemaining?: number;
+  coinBonus?: number;
+  challengesAttempted?: number;
+  tokensUsed?: number;
 }
 
 // Event type delay mapping (ms)
@@ -990,14 +994,22 @@ export default function GameplayPage() {
         <SpaceBetween size="m">
           <Box variant="h3">Score Breakdown</Box>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <Box variant="p"><strong>QA Score:</strong></Box>
-            <Box variant="p">{scoreSummary?.qaScore ?? 0}</Box>
+            <Box variant="p"><strong>Challenge Bonus:</strong></Box>
+            <Box variant="p">{scoreSummary?.challengeScore ?? scoreSummary?.qaScore ?? 0}</Box>
+            <Box variant="p"><strong>Coin Bonus:</strong></Box>
+            <Box variant="p">{scoreSummary?.coinBonus ?? 0}</Box>
             <Box variant="p"><strong>Life Bonus:</strong></Box>
             <Box variant="p">{scoreSummary?.lifeBonusScore ?? 0}</Box>
             <Box variant="p"><strong>Token Bonus:</strong></Box>
-            <Box variant="p">{scoreSummary?.givenTokenBonus ?? 0}</Box>
+            <Box variant="p">{Math.round(scoreSummary?.givenTokenBonus ?? 0)}</Box>
             <Box variant="p"><strong>Treasure Bonus:</strong></Box>
             <Box variant="p">{scoreSummary?.treasureBonus ?? 0}</Box>
+            <Box variant="p"><strong>Challenges Attempted:</strong></Box>
+            <Box variant="p">{scoreSummary?.challengesAttempted ?? 0}</Box>
+            <Box variant="p"><strong>Tokens Per Challenge:</strong></Box>
+            <Box variant="p">{(scoreSummary?.challengesAttempted ?? 0) > 0 ? Math.round((scoreSummary?.tokensUsed ?? 0) / (scoreSummary?.challengesAttempted ?? 1)) : 0}</Box>
+            <Box variant="p"><strong>Total Tokens:</strong></Box>
+            <Box variant="p">{scoreSummary?.tokensUsed ?? 0}</Box>
             <Box variant="p"><strong>Lives Remaining:</strong></Box>
             <Box variant="p">{scoreSummary?.livesRemaining ?? 0}</Box>
           </div>
