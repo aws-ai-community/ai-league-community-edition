@@ -114,8 +114,7 @@ def invoke_agent_runtime(
                             usage_info = parsed["usage_summary"]
                         if "complete_message" in parsed:
                             agent_response = parsed["complete_message"]
-                            break
-                        if "data" in parsed and isinstance(parsed["data"], str):
+                        elif "data" in parsed and isinstance(parsed["data"], str):
                             agent_response += parsed["data"]
                     except json.JSONDecodeError:
                         if data_str.startswith('"') and data_str.endswith('"'):
