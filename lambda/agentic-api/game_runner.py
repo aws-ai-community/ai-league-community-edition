@@ -734,7 +734,7 @@ def run_game_session_v2(
                         answer, usage = invoke_agent_runtime(
                             runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                         )
-                        tokens_used = usage.get("total_usage", {}).get("totalTokens", 0) if usage else max(1, len(answer) // 4)
+                        tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer) // 4)
                         total_tokens += tokens_used
                     except AgentCoreTimeoutError:
                         logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
@@ -818,7 +818,7 @@ def run_game_session_v2(
                     answer, usage = invoke_agent_runtime(
                         runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                     )
-                    tokens_used = usage.get("total_usage", {}).get("totalTokens", 0) if usage else max(1, len(answer) // 4)
+                    tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer) // 4)
                     total_tokens += tokens_used
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on key challenge at (%d,%d)", r, c)
@@ -912,7 +912,7 @@ def run_game_session_v2(
                     answer, usage = invoke_agent_runtime(
                         runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
                     )
-                    tokens_used = usage.get("total_usage", {}).get("totalTokens", 0) if usage else max(1, len(answer) // 4)
+                    tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else max(1, len(answer) // 4)
                     total_tokens += tokens_used
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
