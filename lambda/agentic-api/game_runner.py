@@ -507,6 +507,7 @@ def run_game_session_v2(
     agent_response: str = "",
     user_prompt: str = "",
     invoke_payload: Dict[str, Any] = None,
+    pathfinding_tokens: int = 0,
 ) -> Dict[str, Any]:
     """Run a game session with AgentCore Runtime invocations and incremental flush.
 
@@ -542,7 +543,7 @@ def run_game_session_v2(
     score = 0
     coin_points = 0
     challenge_points = 0
-    total_tokens = 0
+    total_tokens = pathfinding_tokens
     challenges_visited = 0
     game_events: List[Dict[str, Any]] = []
     consumed_tiles: Set[str] = set()

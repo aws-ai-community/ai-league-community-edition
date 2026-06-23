@@ -66,14 +66,18 @@ def handler(event, context):
         except (KeyError, TypeError, ValueError):
             start_pos = (0, 0)
 
+        pathfinding_tokens = 0
         for attempt in range(3):
-            agent_response, _usage = invoke_agent_runtime(
+            agent_response, pathfind_usage = invoke_agent_runtime(
                 runtime_arn=runtime_arn,
                 payload=invoke_payload,
                 timeout=90,
                 session_id=f"{session_id}-attempt{attempt}" if attempt > 0 else session_id,
             )
             if agent_response:
+                # Accumulate pathfinding output tokens
+                if pathfind_usage:
+                    pathfinding_tokens += pathfind_usage.get("total_usage", {}).get("outputTokens", 0)
                 # Try to parse immediately — if parseable, we're done
                 nav_path = path_parser.parse_navigation_path(agent_response, start=start_pos)
                 if nav_path:
@@ -138,6 +142,7 @@ def handler(event, context):
             agent_response=agent_response,
             user_prompt=user_prompt,
             invoke_payload=invoke_payload,
+            pathfinding_tokens=pathfinding_tokens,
         )
 
         # Step 5: Persist final results
