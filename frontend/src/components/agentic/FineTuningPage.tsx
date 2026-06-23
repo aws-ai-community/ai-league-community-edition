@@ -318,7 +318,7 @@ export default function FineTuningPage() {
 
       {/* Cost Warning */}
       <Alert type="warning" header="Cost Warning">
-        Fine-tuning models on SageMaker costs approximately $80/hour. Ensure you monitor your training jobs and stop them when complete to avoid unexpected charges.
+        Fine-tuning models on SageMaker costs $80/hour.  These cost may be covered by AWS credits if they are applied to your account.
       </Alert>
 
       {/* Workflow Overview */}

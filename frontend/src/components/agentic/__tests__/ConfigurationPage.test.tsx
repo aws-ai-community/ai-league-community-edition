@@ -40,7 +40,7 @@ describe('ConfigurationPage', () => {
       const pageText = container.textContent || '';
       // Verify key phrases from the model costs alert
       expect(pageText).toContain('not typically covered by AWS credits');
-      expect(pageText).toContain('Nova 2 Lite is covered by AWS credits');
+      expect(pageText).toContain('Nova 2 Lite is covered by AWS credits if you have them');
     });
   });
 

@@ -1493,7 +1493,7 @@ def handler(event, context):
     const settingsAsset = s3deploy.Source.jsonData('settings.json', {
       graphql: { endpoint: agenticApi.graphqlUrl },
       graphqlApiKey: agenticApi.apiKey,
-      sagemakerStudioUrl: `https://studio-${smDomain.attrDomainId}.studio.${this.region}.sagemaker.aws`,
+      sagemakerStudioUrl: `https://studio-${smDomain.attrDomainId}.studio.${this.region}.sagemaker.aws/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b`,
       auth: {
         cognito: {
           userPoolId: this.userPool.userPoolId,
