@@ -8,6 +8,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Alert from '@cloudscape-design/components/alert';
 import { getLeaderboardSubmissions, LeaderboardEntry } from '../../services/graphqlClient';
 import { PREDEFINED_MAPS } from '../../data/predefinedMaps';
+import { AVATAR_IMAGES, AvatarId } from '../../assets/avatars/avatars';
 
 const mapOptions: SelectProps.Option[] = PREDEFINED_MAPS.map((m, idx) => ({
   label: m.label,
@@ -90,7 +91,7 @@ export default function LeaderboardPage() {
             cell: (item: LeaderboardEntry) =>
               item.avatar ? (
                 <img
-                  src={item.avatar}
+                  src={AVATAR_IMAGES[item.avatar as AvatarId] ?? item.avatar}
                   alt={item.alias ?? 'avatar'}
                   style={{ width: 32, height: 32, borderRadius: '50%' }}
                 />
