@@ -255,7 +255,13 @@ export default function FineTuningPage() {
     try {
       const response = await getTrainingArtifactUrl(artifactKey);
       const url = response.GetTrainingArtifactUrl.url;
-      window.open(url, '_blank');
+      // Force download instead of opening in browser
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = artifactKey;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       console.error(`Failed to download artifact ${artifactKey}:`, error);
     } finally {
@@ -366,22 +372,24 @@ export default function FineTuningPage() {
             </Button>
           </SpaceBetween>
 
-          <SpaceBetween size="xs">
+          <SpaceBetween size="m">
             <Box variant="h3">Sample Artifacts</Box>
             <Box variant="p" color="text-body-secondary">
-              Download sample training data, evaluation data, and a reward function as starting points for your fine-tuning jobs.
+              Download sample training data, evaluation data, and reward functions as starting points for your fine-tuning jobs.
             </Box>
-            <SpaceBetween size="xs" direction="horizontal">
-              {SAMPLE_ARTIFACTS.map((artifact) => (
-                <Button
-                  key={artifact.artifactKey}
-                  iconName="download"
-                  loading={downloadingArtifact === artifact.artifactKey}
-                  onClick={() => handleDownloadArtifact(artifact.artifactKey)}
-                >
-                  {artifact.label}
-                </Button>
-              ))}
+            <SpaceBetween size="s">
+              <Box variant="small" color="text-body-secondary" fontWeight="bold">Tool Call</Box>
+              <SpaceBetween size="xs" direction="horizontal">
+                <Button iconName="download" loading={downloadingArtifact === 'tool-call-training.jsonl'} onClick={() => handleDownloadArtifact('tool-call-training.jsonl')}>Training (500)</Button>
+                <Button iconName="download" loading={downloadingArtifact === 'tool-call-eval.jsonl'} onClick={() => handleDownloadArtifact('tool-call-eval.jsonl')}>Evaluation (100)</Button>
+                <Button iconName="download" loading={downloadingArtifact === 'reward-function-tool-call.py'} onClick={() => handleDownloadArtifact('reward-function-tool-call.py')}>Reward Function</Button>
+              </SpaceBetween>
+              <Box variant="small" color="text-body-secondary" fontWeight="bold">Faithfulness</Box>
+              <SpaceBetween size="xs" direction="horizontal">
+                <Button iconName="download" loading={downloadingArtifact === 'faithfulness-training.jsonl'} onClick={() => handleDownloadArtifact('faithfulness-training.jsonl')}>Training (403)</Button>
+                <Button iconName="download" loading={downloadingArtifact === 'faithfulness-eval.jsonl'} onClick={() => handleDownloadArtifact('faithfulness-eval.jsonl')}>Evaluation (81)</Button>
+                <Button iconName="download" loading={downloadingArtifact === 'reward-function-faithfulness.py'} onClick={() => handleDownloadArtifact('reward-function-faithfulness.py')}>Reward Function</Button>
+              </SpaceBetween>
             </SpaceBetween>
           </SpaceBetween>
         </SpaceBetween>
