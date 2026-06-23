@@ -615,9 +615,24 @@ def handle_submit_to_leaderboard(arguments, event):
             "message": "Session must be completed before submission",
         }
 
-    final_score = float(session.get("finalScore", 0))
+    final_score = int(float(session.get("finalScore", 0)))
     map_id = session.get("mapId", "")
     now = _now_iso()
+
+    # Load user profile for alias and avatar
+    user_alias = user_id
+    user_avatar = None
+    try:
+        profiles_table_name = os.environ.get("USER_PROFILES_TABLE", "")
+        if profiles_table_name:
+            profiles_table = dynamodb.Table(profiles_table_name)
+            profile_response = profiles_table.get_item(Key={"userId": user_id})
+            profile = profile_response.get("Item")
+            if profile:
+                user_alias = profile.get("displayName") or user_id
+                user_avatar = profile.get("avatar")
+    except Exception as e:
+        logger.warning(f"Failed to load user profile for leaderboard: {e}")
 
     # Load SUPERVISOR config for the user (Requirement 16.1)
     supervisor_config = {}
@@ -638,7 +653,7 @@ def handle_submit_to_leaderboard(arguments, event):
             "sk": f"VERSION#{leaderboard_id}#{version_id}",
             "versionId": version_id,
             "name": supervisor_config.get("name", ""),
-            "supervisorConfig": json.dumps(supervisor_config),
+            "supervisorConfig": json.dumps(supervisor_config, default=_decimal_default),
             "finalScore": final_score,
             "subAgentCount": len(supervisor_config.get("subAgents", [])),
             "gsi1pk": f"USER#{user_id}",
@@ -662,18 +677,23 @@ def handle_submit_to_leaderboard(arguments, event):
 
         if existing:
             # Update: bestScore if higher, always update lastScore, increment totalSubmissions
-            current_best = float(existing.get("bestScore", 0))
+            current_best = int(float(existing.get("bestScore", 0)))
             update_expr = (
                 "SET lastScore = :lastScore, "
-                "totalSubmissions = totalSubmissions + :inc, "
+                "totalSubmissions = if_not_exists(totalSubmissions, :zero) + :inc, "
                 "updatedAt = :updatedAt, "
-                "modelId = :modelId"
+                "modelId = :modelId, "
+                "alias = :alias, "
+                "avatar = :avatar"
             )
             expr_values = {
                 ":lastScore": final_score,
                 ":inc": 1,
+                ":zero": 0,
                 ":updatedAt": now,
                 ":modelId": model_id,
+                ":alias": user_alias,
+                ":avatar": user_avatar,
             }
 
             if final_score > current_best:
@@ -692,8 +712,8 @@ def handle_submit_to_leaderboard(arguments, event):
                 "leaderboardId": leaderboard_id,
                 "sk": sk,
                 "userId": user_id,
-                "alias": user_id,
-                "avatar": None,
+                "alias": user_alias,
+                "avatar": user_avatar,
                 "bestScore": final_score,
                 "lastScore": final_score,
                 "totalSubmissions": 1,

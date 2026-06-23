@@ -159,6 +159,8 @@ def handler(event, context):
             "livesRemaining": int(results["livesRemaining"]),
             "reachedTreasure": results["reachedTreasure"],
             "customModelCount": int(custom_model_count),
+            "correctAnswers": int(results.get("correctAnswers", 0)),
+            "totalChallenges": int(results.get("challengesAttempted", 0)),
         })
         logger.info(
             "Game complete: session=%s, status=%s, score=%s",

@@ -545,6 +545,7 @@ def run_game_session_v2(
     challenge_points = 0
     total_tokens = pathfinding_tokens
     challenges_visited = 0
+    correct_answers = 0
     game_events: List[Dict[str, Any]] = []
     consumed_tiles: Set[str] = set()
     collected_keys: Set[str] = set()
@@ -748,6 +749,7 @@ def run_game_session_v2(
                     challenges_visited += 1
 
                     if is_correct:
+                        correct_answers += 1
                         challenge_points += pts
                         score += pts
                         game_events.append({
@@ -833,6 +835,7 @@ def run_game_session_v2(
                 challenges_visited += 1
 
                 if is_correct:
+                    correct_answers += 1
                     challenge_points += pts
                     score += pts
                     game_events.append({
@@ -936,6 +939,7 @@ def run_game_session_v2(
                 })
 
                 if is_correct:
+                    correct_answers += 1
                     challenge_points += pts
                     score += pts
                     game_events.append({
@@ -1030,4 +1034,6 @@ def run_game_session_v2(
         "reachedTreasure": reached_treasure,
         "plannedPath": planned_path,
         "totalTokens": total_tokens,
+        "challengesAttempted": challenges_visited,
+        "correctAnswers": correct_answers,
     }
