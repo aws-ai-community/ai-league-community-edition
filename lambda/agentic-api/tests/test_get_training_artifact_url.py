@@ -33,44 +33,44 @@ class TestHandleGetTrainingArtifactUrl:
     """Tests for handle_get_training_artifact_url."""
 
     def test_valid_training_data_jsonl(self, handler, mock_event):
-        """Valid artifactKey 'training-data.jsonl' returns a pre-signed URL."""
+        """Valid artifactKey 'tool-call-training.jsonl' returns a pre-signed URL."""
         with patch("fine_tuning_handlers.s3_client") as mock_s3:
             mock_s3.generate_presigned_url.return_value = "https://s3.example.com/presigned"
 
-            result = handler({"artifactKey": "training-data.jsonl"}, mock_event)
+            result = handler({"artifactKey": "tool-call-training.jsonl"}, mock_event)
 
             assert result == {"url": "https://s3.example.com/presigned", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/training-data.jsonl"},
+                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-training.jsonl"},
                 ExpiresIn=3600,
             )
 
     def test_valid_eval_data_jsonl(self, handler, mock_event):
-        """Valid artifactKey 'eval-data.jsonl' returns a pre-signed URL."""
+        """Valid artifactKey 'tool-call-eval.jsonl' returns a pre-signed URL."""
         with patch("fine_tuning_handlers.s3_client") as mock_s3:
             mock_s3.generate_presigned_url.return_value = "https://s3.example.com/eval"
 
-            result = handler({"artifactKey": "eval-data.jsonl"}, mock_event)
+            result = handler({"artifactKey": "tool-call-eval.jsonl"}, mock_event)
 
             assert result == {"url": "https://s3.example.com/eval", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/eval-data.jsonl"},
+                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-eval.jsonl"},
                 ExpiresIn=3600,
             )
 
     def test_valid_reward_function_py(self, handler, mock_event):
-        """Valid artifactKey 'reward-function.py' returns a pre-signed URL."""
+        """Valid artifactKey 'reward-function-tool-call.py' returns a pre-signed URL."""
         with patch("fine_tuning_handlers.s3_client") as mock_s3:
             mock_s3.generate_presigned_url.return_value = "https://s3.example.com/reward"
 
-            result = handler({"artifactKey": "reward-function.py"}, mock_event)
+            result = handler({"artifactKey": "reward-function-tool-call.py"}, mock_event)
 
             assert result == {"url": "https://s3.example.com/reward", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/reward-function.py"},
+                Params={"Bucket": "test-bucket", "Key": "samples/reward-function-tool-call.py"},
                 ExpiresIn=3600,
             )
 
@@ -105,7 +105,7 @@ class TestHandleGetTrainingArtifactUrl:
 
         with pytest.raises(RuntimeError, match="Training artifacts bucket is not configured"):
             fine_tuning_handlers.handle_get_training_artifact_url(
-                {"artifactKey": "training-data.jsonl"}, mock_event
+                {"artifactKey": "tool-call-training.jsonl"}, mock_event
             )
 
     def test_s3_error_raises_runtime_error(self, handler, mock_event):
@@ -114,4 +114,4 @@ class TestHandleGetTrainingArtifactUrl:
             mock_s3.generate_presigned_url.side_effect = Exception("S3 access denied")
 
             with pytest.raises(RuntimeError, match="Failed to generate download URL"):
-                handler({"artifactKey": "training-data.jsonl"}, mock_event)
+                handler({"artifactKey": "tool-call-training.jsonl"}, mock_event)

@@ -774,24 +774,18 @@ class TestTokenPenaltyReductionSchedule:
     @settings(max_examples=200)
     def test_schedule_returns_correct_values(self, count):
         """For any count, the reduction matches the defined schedule:
-        0→0.0, 1→0.25, 2→0.50, 3+→0.75."""
+        0→0.0, 1→0.50, 2→0.70, 3→0.85, 4→0.92, 5+→0.95."""
         result = get_token_penalty_reduction(count)
+        schedule = {0: 0.0, 1: 0.50, 2: 0.70, 3: 0.85, 4: 0.92, 5: 0.95}
 
-        if count == 0:
-            assert result == 0.0, (
-                f"Expected 0.0 for count=0, got {result}"
-            )
-        elif count == 1:
-            assert result == 0.25, (
-                f"Expected 0.25 for count=1, got {result}"
-            )
-        elif count == 2:
-            assert result == 0.50, (
-                f"Expected 0.50 for count=2, got {result}"
+        if count >= 5:
+            assert result == 0.95, (
+                f"Expected 0.95 for count={count} (>=5), got {result}"
             )
         else:
-            assert result == 0.75, (
-                f"Expected 0.75 for count={count} (>=3), got {result}"
+            expected = schedule[count]
+            assert result == expected, (
+                f"Expected {expected} for count={count}, got {result}"
             )
 
     @given(
@@ -824,19 +818,19 @@ class TestTokenPenaltyReductionSchedule:
         assert get_token_penalty_reduction(0) == 0.0
 
     def test_exact_value_count_1(self):
-        """For count=1, returns exactly 0.25."""
-        assert get_token_penalty_reduction(1) == 0.25
+        """For count=1, returns exactly 0.50."""
+        assert get_token_penalty_reduction(1) == 0.50
 
     def test_exact_value_count_2(self):
-        """For count=2, returns exactly 0.50."""
-        assert get_token_penalty_reduction(2) == 0.50
+        """For count=2, returns exactly 0.70."""
+        assert get_token_penalty_reduction(2) == 0.70
 
-    @given(count=st.integers(min_value=3, max_value=100))
+    @given(count=st.integers(min_value=5, max_value=100))
     @settings(max_examples=100)
-    def test_exact_value_count_3_plus(self, count):
-        """For count>=3, returns exactly 0.75."""
-        assert get_token_penalty_reduction(count) == 0.75, (
-            f"Expected 0.75 for count={count}, got {get_token_penalty_reduction(count)}"
+    def test_exact_value_count_5_plus(self, count):
+        """For count>=5, returns exactly 0.95."""
+        assert get_token_penalty_reduction(count) == 0.95, (
+            f"Expected 0.95 for count={count}, got {get_token_penalty_reduction(count)}"
         )
 
 

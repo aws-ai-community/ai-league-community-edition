@@ -4,14 +4,13 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Box from '@cloudscape-design/components/box';
 import Button from '@cloudscape-design/components/button';
-import ColumnLayout from '@cloudscape-design/components/column-layout';
-import Icon from '@cloudscape-design/components/icon';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Flashbar, { FlashbarProps } from '@cloudscape-design/components/flashbar';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Modal from '@cloudscape-design/components/modal';
 import Table from '@cloudscape-design/components/table';
+import Alert from '@cloudscape-design/components/alert';
 import {
   getTrainingArtifactUrl,
   registerCustomModel,
@@ -21,6 +20,7 @@ import {
   getCustomModelStatus,
   CustomModelResponse,
 } from '../../services/graphqlClient';
+import { loadSettings } from '../../services/settingsLoader';
 
 // --- Token Penalty Reduction Schedule ---
 
@@ -31,9 +31,11 @@ interface PenaltyReductionRow {
 
 const TOKEN_PENALTY_REDUCTION_ITEMS: PenaltyReductionRow[] = [
   { customModelsUsed: '0', reduction: '0% (baseline)' },
-  { customModelsUsed: '1', reduction: '25%' },
-  { customModelsUsed: '2', reduction: '50%' },
-  { customModelsUsed: '3+', reduction: '75%' },
+  { customModelsUsed: '1', reduction: '50%' },
+  { customModelsUsed: '2', reduction: '70%' },
+  { customModelsUsed: '3', reduction: '85%' },
+  { customModelsUsed: '4', reduction: '92%' },
+  { customModelsUsed: '5', reduction: '95%' },
 ];
 
 // --- Workflow Steps ---
@@ -74,8 +76,6 @@ const WORKFLOW_STEPS: WorkflowStep[] = [
 
 // --- Component ---
 
-const SAGEMAKER_CONSOLE_URL = 'https://us-east-1.console.aws.amazon.com/sagemaker/home?region=us-east-1#/jobs';
-
 interface ArtifactDownload {
   label: string;
   artifactKey: string;
@@ -83,15 +83,19 @@ interface ArtifactDownload {
 }
 
 const SAMPLE_ARTIFACTS: ArtifactDownload[] = [
-  { label: 'Training Dataset', artifactKey: 'training-data.jsonl', description: 'Sample JSONL training data for fine-tuning' },
-  { label: 'Evaluation Dataset', artifactKey: 'eval-data.jsonl', description: 'Sample JSONL evaluation data' },
-  { label: 'Reward Function', artifactKey: 'reward-function.py', description: 'Sample Python reward function' },
+  { label: 'Tool Call Training Data', artifactKey: 'tool-call-training.jsonl', description: 'JSONL training data for tool calling (500 entries)' },
+  { label: 'Tool Call Eval Data', artifactKey: 'tool-call-eval.jsonl', description: 'JSONL evaluation data for tool calling (100 entries)' },
+  { label: 'Faithfulness Training Data', artifactKey: 'faithfulness-training.jsonl', description: 'JSONL training data for faithfulness (403 entries)' },
+  { label: 'Faithfulness Eval Data', artifactKey: 'faithfulness-eval.jsonl', description: 'JSONL evaluation data for faithfulness (81 entries)' },
+  { label: 'Tool Call Reward Function', artifactKey: 'reward-function-tool-call.py', description: 'Python reward function for tool calling' },
+  { label: 'Faithfulness Reward Function', artifactKey: 'reward-function-faithfulness.py', description: 'Python reward function for faithfulness' },
 ];
 
 const TRAINING_JOB_ARN_PATTERN = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:training-job\/[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?$/;
 
 export default function FineTuningPage() {
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
+  const [sagemakerStudioUrl, setSagemakerStudioUrl] = useState<string>('');
 
   // Registration form state
   const [modelName, setModelName] = useState('');
@@ -140,6 +144,17 @@ export default function FineTuningPage() {
     } finally {
       setLoadingModels(false);
     }
+  }, []);
+
+  // Load SageMaker Studio URL from settings
+  useEffect(() => {
+    loadSettings().then((settings) => {
+      if (settings.sagemakerStudioUrl) {
+        setSagemakerStudioUrl(settings.sagemakerStudioUrl);
+      }
+    }).catch(() => {
+      // Settings load failed - SageMaker URL will remain empty
+    });
   }, []);
 
   useEffect(() => {
@@ -301,24 +316,36 @@ export default function FineTuningPage() {
         Fine-Tuning
       </Header>
 
+      {/* Cost Warning */}
+      <Alert type="warning" header="Cost Warning">
+        Fine-tuning models on SageMaker costs approximately $80/hour. Ensure you monitor your training jobs and stop them when complete to avoid unexpected charges.
+      </Alert>
+
       {/* Workflow Overview */}
       <Container header={<Header variant="h2">How It Works</Header>}>
-        <ColumnLayout columns={5} variant="text-grid">
-          {WORKFLOW_STEPS.map((step) => (
-            <SpaceBetween key={step.number} size="xs">
-              <Box variant="h3" color="text-status-info">
-                <SpaceBetween size="xs" direction="horizontal">
-                  <Icon name="status-positive" />
-                  <span>Step {step.number}</span>
-                </SpaceBetween>
-              </Box>
-              <Box variant="h4">{step.title}</Box>
-              <Box variant="p" color="text-body-secondary">
-                {step.description}
-              </Box>
-            </SpaceBetween>
-          ))}
-        </ColumnLayout>
+        <Table
+          columnDefinitions={[
+            {
+              id: 'step',
+              header: 'Step',
+              cell: (item: WorkflowStep) => item.number,
+              width: 80,
+            },
+            {
+              id: 'title',
+              header: 'Title',
+              cell: (item: WorkflowStep) => <Box fontWeight="bold">{item.title}</Box>,
+              width: 200,
+            },
+            {
+              id: 'description',
+              header: 'Description',
+              cell: (item: WorkflowStep) => item.description,
+            },
+          ]}
+          items={WORKFLOW_STEPS}
+          variant="embedded"
+        />
       </Container>
 
       {/* SageMaker Console Link and Sample Artifacts */}
@@ -332,9 +359,10 @@ export default function FineTuningPage() {
             <Button
               variant="primary"
               iconName="external"
-              onClick={() => window.open(SAGEMAKER_CONSOLE_URL, '_blank')}
+              onClick={() => window.open(sagemakerStudioUrl, '_blank')}
+              disabled={!sagemakerStudioUrl}
             >
-              Open SageMaker Console
+              Open SageMaker Studio
             </Button>
           </SpaceBetween>
 
@@ -386,6 +414,9 @@ export default function FineTuningPage() {
           items={TOKEN_PENALTY_REDUCTION_ITEMS}
           variant="embedded"
         />
+        <Box variant="p" color="text-body-secondary" padding={{ top: 's' }}>
+          The first customized model gives you the biggest jump — a 50% reduction in your token penalty. Additional models provide diminishing but still meaningful returns.
+        </Box>
       </Container>
 
       {/* Flash notifications */}

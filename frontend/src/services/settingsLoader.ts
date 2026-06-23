@@ -3,6 +3,7 @@ export interface AppSyncSettings {
     endpoint: string;
   };
   graphqlApiKey: string;
+  sagemakerStudioUrl?: string;
 }
 
 let cachedSettings: AppSyncSettings | null = null;

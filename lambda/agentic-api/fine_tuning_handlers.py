@@ -92,9 +92,12 @@ def _now_iso() -> str:
 
 # Whitelist of allowed training artifact keys for security
 ALLOWED_ARTIFACT_KEYS = frozenset([
-    "training-data.jsonl",
-    "eval-data.jsonl",
-    "reward-function.py",
+    "tool-call-training.jsonl",
+    "tool-call-eval.jsonl",
+    "reward-function-tool-call.py",
+    "faithfulness-training.jsonl",
+    "faithfulness-eval.jsonl",
+    "reward-function-faithfulness.py",
 ])
 
 
@@ -869,22 +872,22 @@ def get_token_penalty_reduction(custom_model_count: int) -> float:
 
     Schedule:
         0 custom models → 0.0 (no reduction)
-        1 custom model  → 0.25 (25% reduction)
-        2 custom models → 0.50 (50% reduction)
-        3+ custom models → 0.75 (75% reduction)
+        1 custom model  → 0.50 (50% reduction)
+        2 custom models → 0.70 (70% reduction)
+        3 custom models → 0.85 (85% reduction)
+        4 custom models → 0.92 (92% reduction)
+        5+ custom models → 0.95 (95% reduction)
 
     This is a pure function with no side effects.
 
     Requirements: 6.2
     """
+    schedule = {0: 0.0, 1: 0.50, 2: 0.70, 3: 0.85, 4: 0.92, 5: 0.95}
     if custom_model_count <= 0:
         return 0.0
-    elif custom_model_count == 1:
-        return 0.25
-    elif custom_model_count == 2:
-        return 0.50
-    else:
-        return 0.75
+    if custom_model_count >= 5:
+        return 0.95
+    return schedule.get(custom_model_count, 0.95)
 
 
 def count_custom_models_in_config(user_id: str) -> int:
