@@ -588,6 +588,50 @@ def handler(event, context):
       actions: ['lambda:UpdateFunctionCode', 'lambda:GetFunction', 'lambda:InvokeFunction'],
       resources: [`arn:aws:lambda:*:*:function:AgentCoreGatewayTool-*`],
     }));
+    // Lambda permissions for reward functions (fine-tuning evaluators)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'lambda:CreateFunction',
+        'lambda:UpdateFunctionCode',
+        'lambda:GetFunction',
+        'lambda:InvokeFunction',
+        'lambda:DeleteFunction',
+        'lambda:GetFunctionConfiguration',
+        'lambda:AddPermission',
+        'lambda:RemovePermission',
+      ],
+      resources: ['*'],
+    }));
+    // Allow SageMaker to pass its own role (needed for training jobs and reward functions)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [smExecRole.roleArn],
+    }));
+    // Bedrock permissions for fine-tuning (model customization)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'bedrock:CreateModelCustomizationJob',
+        'bedrock:GetModelCustomizationJob',
+        'bedrock:StopModelCustomizationJob',
+        'bedrock:ListModelCustomizationJobs',
+        'bedrock:CreateProvisionedModelThroughput',
+        'bedrock:GetProvisionedModelThroughput',
+        'bedrock:GetCustomModel',
+        'bedrock:ListCustomModels',
+        'bedrock:GetFoundationModel',
+        'bedrock:ListFoundationModels',
+        'bedrock:TagResource',
+        'bedrock:UntagResource',
+      ],
+      resources: ['*'],
+    }));
+
+    // Default SageMaker bucket (required for training data, model artifacts, reward functions)
+    const sagemakerDefaultBucket = new s3.Bucket(this, 'SageMakerDefaultBucket', {
+      bucketName: `sagemaker-${this.region}-${this.account}`,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
 
     // SageMaker Domain
     const smDomain = new cdk.aws_sagemaker.CfnDomain(this, 'SageMakerDomain', {
