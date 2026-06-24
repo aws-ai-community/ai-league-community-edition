@@ -629,6 +629,30 @@ def handler(event, context):
       ],
       resources: ['*'],
     }));
+    // Allow loading customization recipes from SageMaker HubContent (required for fine-tuning)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'sagemaker:DescribeHubContent',
+        'sagemaker:ListHubContents',
+        'sagemaker:ListHubContentVersions',
+        'sagemaker:DescribeHub',
+        'sagemaker:ListHubs',
+      ],
+      resources: ['*'],
+    }));
+    // S3 access for JumpStart model artifacts and customization recipes
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        's3:GetObject',
+        's3:ListBucket',
+      ],
+      resources: [
+        'arn:aws:s3:::jumpstart-cache-prod-*',
+        'arn:aws:s3:::jumpstart-cache-prod-*/*',
+        'arn:aws:s3:::sagemaker-*',
+        'arn:aws:s3:::sagemaker-*/*',
+      ],
+    }));
 
     // Default SageMaker bucket (required for training data, model artifacts, reward functions)
     const sagemakerDefaultBucket = new s3.Bucket(this, 'SageMakerDefaultBucket', {
