@@ -1063,15 +1063,9 @@ def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:
             UserProfileName=user_profile_name,
             ExpiresInSeconds=300,
             SessionExpirationDurationInSeconds=43200,
+            LandingUri="studio::models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b",
         )
-        presigned_url = resp.get("AuthorizedUrl", "")
-
-        # Append redirect to the model page after authentication
-        if presigned_url:
-            separator = "&" if "?" in presigned_url else "?"
-            presigned_url = f"{presigned_url}{separator}redirect=/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b"
-
-        return {"url": presigned_url, "error": None}
+        return {"url": resp.get("AuthorizedUrl", ""), "error": None}
     except Exception as e:
         logger.error("Failed to generate Studio presigned URL: %s", e)
         return {"url": "", "error": str(e)}
