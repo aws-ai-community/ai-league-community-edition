@@ -14,6 +14,7 @@ Requirements: 3.2, 9.1, 9.3
 
 import re
 import os
+import time
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -692,10 +693,10 @@ def handle_get_custom_model_status(arguments: dict, event: dict) -> dict:
 
 
 def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
-    """Delete a custom model and its Bedrock deployment.
+    """Delete a custom model record from DynamoDB.
 
     Args:
-        arguments: {modelId: str, force: bool (optional)}
+        arguments: {modelId: str, force: bool (optional, kept for backwards compat)}
         event: AppSync event with identity
 
     Returns:
@@ -703,9 +704,8 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
 
     Steps:
         1. Load CUSTOMMODEL record from DynamoDB
-        2. If not force: check if deploymentArn is used in any agent config
-           - If in use: return {success: false, statusCode: 409, message: "Model is currently in use by: ..."}
-        3. If deploymentArn exists: call Bedrock DeleteCustomModelDeployment (log warning on failure, continue)
+        2. If status is "Deployed", block deletion — user must undeploy first
+        3. If deploymentArn exists (edge case during failures): check if in use by any agent config
         4. Delete DynamoDB record
         5. Return success
 
@@ -713,7 +713,6 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
     """
     user_id = _get_user_id(event)
     model_id = arguments.get("modelId", "")
-    force = arguments.get("force", False)
 
     # Step 1: Load CUSTOMMODEL record from DynamoDB
     try:
@@ -742,10 +741,19 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
             "message": "Custom model not found",
         }
 
+    # Step 2: If status is "Deployed", block deletion
+    current_status = item.get("status", "")
+    if current_status == "Deployed":
+        return {
+            "success": False,
+            "statusCode": 400,
+            "message": "Cannot delete a deployed model. Undeploy it first.",
+        }
+
     deployment_arn = item.get("deploymentArn")
 
-    # Step 2: If not force, check if the model's deploymentArn is in use
-    if not force and deployment_arn:
+    # Step 3: If deploymentArn exists (edge case during failures), check if in use
+    if deployment_arn:
         used_by = []
 
         try:
@@ -776,32 +784,14 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
                 "Error checking model usage for user %s, modelId %s: %s",
                 user_id, model_id, e
             )
-            # Continue with deletion on usage check failure — don't block deletion
 
         if used_by:
             agent_names = ", ".join(used_by)
             return {
                 "success": False,
                 "statusCode": 409,
-                "message": f"Model is currently in use by: {agent_names}",
+                "message": f"Model is currently in use by: {agent_names}. Remove it from agent configuration before undeploying.",
             }
-
-    # Step 3: If deploymentArn exists, delete the Bedrock Custom Model Deployment
-    if deployment_arn:
-        try:
-            bedrock_client.delete_custom_model_deployment(
-                customModelDeploymentIdentifier=deployment_arn
-            )
-            logger.info(
-                "Deleted Bedrock deployment %s for user %s, modelId %s",
-                deployment_arn, user_id, model_id
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to delete Bedrock deployment %s for user %s, modelId %s: %s. "
-                "Continuing with DynamoDB record deletion.",
-                deployment_arn, user_id, model_id, e
-            )
 
     # Step 4: Delete DynamoDB record
     try:
@@ -827,6 +817,200 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
         "success": True,
         "statusCode": 200,
         "message": "Custom model deleted successfully",
+    }
+
+
+def handle_undeploy_custom_model(arguments: dict, event: dict) -> dict:
+    """Undeploy a deployed custom model, removing its Bedrock deployment.
+
+    Args:
+        arguments: {modelId: str}
+        event: AppSync event with identity
+
+    Returns:
+        MutationResponse dict {success, statusCode, message}
+
+    Steps:
+        1. Load CUSTOMMODEL record from DynamoDB
+        2. Verify status is "Deployed" — return error if not
+        3. Check if deploymentArn is in use by any agent config
+        4. Call Bedrock DeleteCustomModelDeployment with retry (3 attempts, exponential backoff)
+        5. Verify deletion by calling GetCustomModelDeployment
+        6. Update DynamoDB: clear deploymentArn, set status to "Registered", update updatedAt
+        7. Return success
+    """
+    user_id = _get_user_id(event)
+    model_id = arguments.get("modelId", "")
+
+    # Step 1: Load CUSTOMMODEL record from DynamoDB
+    try:
+        response = agent_configurations_table.get_item(
+            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"}
+        )
+    except Exception as e:
+        logger.error(
+            "Error loading custom model record for user %s, modelId %s: %s",
+            user_id, model_id, e
+        )
+        return {
+            "success": False,
+            "statusCode": 500,
+            "message": f"Failed to load custom model: {e}",
+        }
+
+    item = response.get("Item")
+    if not item:
+        return {
+            "success": False,
+            "statusCode": 404,
+            "message": "Custom model not found",
+        }
+
+    # Step 2: Verify status is "Deployed"
+    current_status = item.get("status", "")
+    if current_status != "Deployed":
+        return {
+            "success": False,
+            "statusCode": 400,
+            "message": f"Cannot undeploy model with status '{current_status}'. Only deployed models can be undeployed.",
+        }
+
+    deployment_arn = item.get("deploymentArn")
+    if not deployment_arn:
+        return {
+            "success": False,
+            "statusCode": 400,
+            "message": "Model has no deployment ARN. Cannot undeploy.",
+        }
+
+    # Step 3: Check if deploymentArn is in use by any agent config
+    used_by = []
+    try:
+        # Check SUPERVISOR record
+        supervisor_response = agent_configurations_table.get_item(
+            Key={"userId": user_id, "sk": "SUPERVISOR"}
+        )
+        supervisor_item = supervisor_response.get("Item")
+        if supervisor_item and supervisor_item.get("modelId") == deployment_arn:
+            used_by.append(supervisor_item.get("name", "Supervisor"))
+
+        # Check all SUBAGENT# records
+        subagent_response = agent_configurations_table.query(
+            IndexName="GSI1",
+            KeyConditionExpression="gsi1pk = :pk AND begins_with(gsi1sk, :prefix)",
+            ExpressionAttributeValues={
+                ":pk": f"USER#{user_id}",
+                ":prefix": "SUBAGENT#",
+            },
+        )
+        subagent_items = subagent_response.get("Items", [])
+        for subagent in subagent_items:
+            if subagent.get("modelId") == deployment_arn:
+                used_by.append(subagent.get("name", "Sub-agent"))
+
+    except Exception as e:
+        logger.warning(
+            "Error checking model usage for user %s, modelId %s: %s",
+            user_id, model_id, e
+        )
+
+    if used_by:
+        agent_names = ", ".join(used_by)
+        return {
+            "success": False,
+            "statusCode": 409,
+            "message": f"Model is currently in use by: {agent_names}. Remove it from agent configuration before undeploying.",
+        }
+
+    # Step 4: Call Bedrock DeleteCustomModelDeployment with retry (3 attempts, exponential backoff)
+    delete_succeeded = False
+    last_error = None
+    for attempt in range(3):
+        try:
+            bedrock_client.delete_custom_model_deployment(
+                customModelDeploymentIdentifier=deployment_arn
+            )
+            delete_succeeded = True
+            break
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "Undeploy attempt %d failed for deployment %s: %s",
+                attempt + 1, deployment_arn, e
+            )
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # 1s, 2s
+
+    if not delete_succeeded:
+        logger.error(
+            "Failed to delete Bedrock deployment %s after 3 attempts: %s",
+            deployment_arn, last_error
+        )
+        return {
+            "success": False,
+            "statusCode": 500,
+            "message": f"Failed to undeploy model after 3 attempts: {last_error}",
+        }
+
+    # Step 5: Verify deletion
+    try:
+        verify_response = bedrock_client.get_custom_model_deployment(
+            customModelDeploymentIdentifier=deployment_arn
+        )
+        verify_status = verify_response.get("status", "")
+        if verify_status not in ("Deleting", "DELETING"):
+            logger.warning(
+                "Deployment %s still active with status '%s' after delete call",
+                deployment_arn, verify_status
+            )
+    except bedrock_client.exceptions.ResourceNotFoundException:
+        # ResourceNotFound means it's already gone — success
+        logger.info("Deployment %s confirmed deleted (ResourceNotFound)", deployment_arn)
+    except Exception as e:
+        # ValidationException or other errors — consider it successful
+        error_code = ""
+        if hasattr(e, "response"):
+            error_code = e.response.get("Error", {}).get("Code", "")
+        if error_code in ("ResourceNotFoundException", "ValidationException"):
+            logger.info("Deployment %s confirmed deleted (%s)", deployment_arn, error_code)
+        else:
+            logger.warning(
+                "Could not verify deletion of deployment %s: %s. Proceeding anyway.",
+                deployment_arn, e
+            )
+
+    # Step 6: Update DynamoDB: clear deploymentArn, set status to "Registered"
+    now = _now_iso()
+    try:
+        agent_configurations_table.update_item(
+            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+            UpdateExpression="SET #status = :status, updatedAt = :now REMOVE deploymentArn",
+            ExpressionAttributeNames={"#status": "status"},
+            ExpressionAttributeValues={
+                ":status": "Registered",
+                ":now": now,
+            },
+        )
+    except Exception as e:
+        logger.error(
+            "Error updating custom model record after undeploy for user %s, modelId %s: %s",
+            user_id, model_id, e
+        )
+        return {
+            "success": False,
+            "statusCode": 500,
+            "message": f"Bedrock deployment deleted but failed to update record: {e}",
+        }
+
+    # Step 7: Return success
+    logger.info(
+        "Custom model undeployed: modelId=%s, user=%s, deploymentArn=%s",
+        model_id, user_id, deployment_arn
+    )
+    return {
+        "success": True,
+        "statusCode": 200,
+        "message": "Model undeployed successfully",
     }
 
 
@@ -969,21 +1153,26 @@ def count_custom_models_in_config(user_id: str) -> int:
         return 0
 
 
-def handle_reset_custom_models(user_id: str) -> None:
+def handle_reset_custom_models(user_id: str) -> list:
     """Delete all custom model deployments and records for a user.
 
     Called by handle_reset_configuration during full reset.
-    Best-effort cleanup: continues on individual failures, logs all errors.
+    Uses retry+verify pattern: 3 retries with exponential backoff for each
+    Bedrock deployment deletion, then verifies deletion status.
 
     Steps:
         1. Query all CUSTOMMODEL# records for user via GSI1
-        2. For each record with a deploymentArn: call Bedrock DeleteCustomModelDeployment
-        3. Delete each DynamoDB record
-        4. Continue on individual failures (best-effort cleanup)
+        2. For each record with a deploymentArn:
+           - Retry delete_custom_model_deployment up to 3 times (1s, 2s, 4s backoff)
+           - Verify by calling get_custom_model_deployment
+           - If still active after 3 retries, add to failures list
+        3. Delete all DynamoDB records regardless of deployment deletion success
+        4. Return list of failed model names/ARNs
 
     Requirements: 7.1, 7.2, 7.4
     """
     logger.info("Reset: Cleaning up custom models for user %s", user_id)
+    failures = []
 
     # Step 1: Query all CUSTOMMODEL# records for the user
     try:
@@ -997,36 +1186,76 @@ def handle_reset_custom_models(user_id: str) -> None:
         logger.error(
             "Reset: Failed to query custom models for user %s: %s", user_id, e
         )
-        return
+        return []
 
     if not items:
         logger.info("Reset: No custom models found for user %s", user_id)
-        return
+        return []
 
     logger.info("Reset: Found %d custom model(s) for user %s", len(items), user_id)
 
-    # Step 2 & 3: For each record, delete Bedrock deployment and DynamoDB record
+    # Step 2: For each record with a deploymentArn, retry delete with verification
     for item in items:
         model_id = item.get("modelId", "unknown")
+        model_name = item.get("name", model_id)
         deployment_arn = item.get("deploymentArn")
 
-        # Delete Bedrock Custom Model Deployment (best-effort)
         if deployment_arn:
-            try:
-                bedrock_client.delete_custom_model_deployment(
-                    customModelDeploymentIdentifier=deployment_arn
-                )
-                logger.info(
-                    "Reset: Deleted Bedrock deployment %s for model %s",
-                    deployment_arn, model_id
-                )
-            except Exception as e:
-                logger.warning(
-                    "Reset: Failed to delete Bedrock deployment %s for model %s: %s. Continuing.",
-                    deployment_arn, model_id, e
-                )
+            delete_succeeded = False
+            for attempt in range(3):
+                try:
+                    bedrock_client.delete_custom_model_deployment(
+                        customModelDeploymentIdentifier=deployment_arn
+                    )
+                    delete_succeeded = True
+                    break
+                except Exception as e:
+                    logger.warning(
+                        "Reset: Attempt %d to delete deployment %s for model %s failed: %s",
+                        attempt + 1, deployment_arn, model_id, e
+                    )
+                    if attempt < 2:
+                        time.sleep(2 ** attempt)  # 1s, 2s delay
 
-        # Delete DynamoDB record (best-effort)
+            if delete_succeeded:
+                # Verify deletion
+                try:
+                    verify_response = bedrock_client.get_custom_model_deployment(
+                        customModelDeploymentIdentifier=deployment_arn
+                    )
+                    verify_status = verify_response.get("status", "")
+                    if verify_status in ("Deleting", "DELETING"):
+                        logger.info(
+                            "Reset: Deployment %s is deleting (confirmed)", deployment_arn
+                        )
+                    else:
+                        logger.warning(
+                            "Reset: Deployment %s still active with status '%s' after delete",
+                            deployment_arn, verify_status
+                        )
+                        failures.append(f"{model_name} ({deployment_arn})")
+                except Exception as e:
+                    # ResourceNotFoundException or ValidationException = deleted
+                    error_code = ""
+                    if hasattr(e, "response"):
+                        error_code = e.response.get("Error", {}).get("Code", "")
+                    if error_code in ("ResourceNotFoundException", "ValidationException"):
+                        logger.info(
+                            "Reset: Deployment %s confirmed deleted (%s)",
+                            deployment_arn, error_code
+                        )
+                    else:
+                        # Other errors — assume deleted
+                        logger.info(
+                            "Reset: Deployment %s likely deleted (verify error: %s)",
+                            deployment_arn, e
+                        )
+            else:
+                failures.append(f"{model_name} ({deployment_arn})")
+
+    # Step 3: Delete all DynamoDB records regardless of deployment deletion success
+    for item in items:
+        model_id = item.get("modelId", "unknown")
         try:
             agent_configurations_table.delete_item(
                 Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"}
@@ -1039,6 +1268,7 @@ def handle_reset_custom_models(user_id: str) -> None:
             )
 
     logger.info("Reset: Custom model cleanup complete for user %s", user_id)
+    return failures
 
 
 def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:

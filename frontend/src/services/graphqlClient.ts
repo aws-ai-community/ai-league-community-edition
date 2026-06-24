@@ -971,6 +971,19 @@ export async function deleteCustomModel(modelId: string, force?: boolean): Promi
   return graphqlRequest<{ DeleteCustomModel: MutationResponse }>(query, { modelId, force: force ?? null }, true);
 }
 
+export async function undeployCustomModel(modelId: string): Promise<{ UndeployCustomModel: MutationResponse }> {
+  const query = `
+    mutation UndeployCustomModel($modelId: String!) {
+      UndeployCustomModel(modelId: $modelId) {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ UndeployCustomModel: MutationResponse }>(query, { modelId }, true);
+}
+
 export async function getCustomModelStatus(modelId: string): Promise<{ GetCustomModelStatus: CustomModelResponse }> {
   const query = `
     query GetCustomModelStatus($modelId: String!) {

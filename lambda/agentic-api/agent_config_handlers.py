@@ -2109,7 +2109,7 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
     try:
         # Step 0: Delete all custom model deployments and records (best-effort)
         # Must run BEFORE other cleanup to ensure Bedrock deployments are removed first
-        fine_tuning_handlers.handle_reset_custom_models(user_id)
+        undeploy_failures = fine_tuning_handlers.handle_reset_custom_models(user_id)
 
         # Step 1: Delete all sub-agents except the default pathfinder
         sub_agents = agent_configurations_table.query(
@@ -2331,6 +2331,14 @@ def handle_reset_configuration(arguments: dict, event: dict) -> dict:
                     logger.info("Reset: Recreated Pathfinder Lambda (placeholder)")
                 except Exception as e2:
                     logger.warning("Reset: Failed to recreate Pathfinder Lambda: %s", e2)
+
+        if undeploy_failures:
+            failed_names = ", ".join(undeploy_failures)
+            return {
+                "success": True,
+                "statusCode": 200,
+                "message": f"Reset completed but failed to undeploy: {failed_names}. Please manually delete from Bedrock console to avoid charges.",
+            }
 
         return {"success": True, "statusCode": 200, "message": "Configuration reset successfully"}
 

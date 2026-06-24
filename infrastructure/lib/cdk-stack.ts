@@ -826,6 +826,7 @@ def handler(event, context):
       handler: 'index.handler',
       timeout: cdk.Duration.minutes(10),
       code: lambda.Code.fromInline(`
+import time
 import boto3
 import cfnresponse
 
@@ -851,21 +852,44 @@ def handler(event, context):
                     break
                 scan_kwargs['ExclusiveStartKey'] = resp['LastEvaluatedKey']
 
-            # Delete each Bedrock deployment and DynamoDB record (best-effort)
+            failures = []
+            # Delete each Bedrock deployment with retry+verify pattern
             for item in items:
                 deployment_arn = item.get('deploymentArn')
                 if deployment_arn:
-                    try:
-                        bedrock.delete_custom_model_deployment(
-                            customModelDeploymentIdentifier=deployment_arn)
-                        print(f'Deleted deployment: {deployment_arn}')
-                    except Exception as e:
-                        print(f'Warning: failed to delete deployment {deployment_arn}: {e}')
+                    delete_succeeded = False
+                    for attempt in range(3):
+                        try:
+                            bedrock.delete_custom_model_deployment(
+                                customModelDeploymentIdentifier=deployment_arn)
+                            delete_succeeded = True
+                            break
+                        except Exception as e:
+                            print(f'Attempt {attempt+1} failed to delete deployment {deployment_arn}: {e}')
+                            if attempt < 2:
+                                time.sleep(2 ** attempt)
+                    if delete_succeeded:
+                        # Verify deletion
+                        try:
+                            verify_resp = bedrock.get_custom_model_deployment(
+                                customModelDeploymentIdentifier=deployment_arn)
+                            status = verify_resp.get('status', '')
+                            if status not in ('Deleting', 'DELETING'):
+                                failures.append(deployment_arn)
+                        except Exception:
+                            pass  # ResourceNotFound or ValidationException = deleted
+                    else:
+                        failures.append(deployment_arn)
+
+                # Delete DynamoDB record regardless
                 try:
                     table.delete_item(Key={'userId': item['userId'], 'sk': item['sk']})
                     print(f'Deleted record: {item["userId"]}/{item["sk"]}')
                 except Exception as e:
                     print(f'Warning: failed to delete record {item.get("userId")}/{item.get("sk")}: {e}')
+
+            if failures:
+                print(f'WARNING: Failed to undeploy: {failures}. Manual cleanup needed.')
 
         cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
     except Exception as e:
@@ -882,7 +906,7 @@ def handler(event, context):
 
     // Grant cleanup Lambda permissions for Bedrock Custom Model Deployment operations
     cleanupCustomModelsFn.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['bedrock:DeleteCustomModelDeployment', 'bedrock:ListCustomModelDeployments'],
+      actions: ['bedrock:DeleteCustomModelDeployment', 'bedrock:GetCustomModelDeployment', 'bedrock:ListCustomModelDeployments'],
       resources: ['*'],
     }));
 
@@ -1318,6 +1342,10 @@ def handler(event, context):
     agenticDataSource.createResolver('DeployCustomModelResolver', {
       typeName: 'Mutation',
       fieldName: 'DeployCustomModel',
+    });
+    agenticDataSource.createResolver('UndeployCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'UndeployCustomModel',
     });
     agenticDataSource.createResolver('DeleteCustomModelResolver', {
       typeName: 'Mutation',

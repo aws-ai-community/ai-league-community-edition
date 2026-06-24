@@ -262,6 +262,7 @@ type Mutation {
   # Fine-Tuning Mutations
   RegisterCustomModel(name: String!, trainingJobArn: String!): CustomModel @aws_cognito_user_pools
   DeployCustomModel(modelId: String!): CustomModel @aws_cognito_user_pools
+  UndeployCustomModel(modelId: String!): MutationResponse @aws_cognito_user_pools
   DeleteCustomModel(modelId: String!, force: Boolean): MutationResponse @aws_cognito_user_pools
 }
 

@@ -8,7 +8,6 @@ import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Flashbar, { FlashbarProps } from '@cloudscape-design/components/flashbar';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
-import Modal from '@cloudscape-design/components/modal';
 import Table from '@cloudscape-design/components/table';
 import Alert from '@cloudscape-design/components/alert';
 import {
@@ -17,6 +16,7 @@ import {
   listCustomModels,
   deployCustomModel,
   deleteCustomModel,
+  undeployCustomModel,
   getCustomModelStatus,
   getStudioPresignedUrl,
   CustomModelResponse,
@@ -110,12 +110,7 @@ export default function FineTuningPage() {
   const [loadingModels, setLoadingModels] = useState(true);
   const [deployingModelId, setDeployingModelId] = useState<string | null>(null);
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
-
-  // Delete confirmation modal state
-  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
-  const [deleteConfirmModelId, setDeleteConfirmModelId] = useState<string | null>(null);
-  const [deleteConfirmMessage, setDeleteConfirmMessage] = useState('');
-  const [deleteForce, setDeleteForce] = useState(false);
+  const [undeployingModelId, setUndeployingModelId] = useState<string | null>(null);
 
   // Polling ref for deploying models
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -286,17 +281,11 @@ export default function FineTuningPage() {
     }
   };
 
-  const handleDeleteModel = async (modelId: string, force?: boolean) => {
+  const handleDeleteModel = async (modelId: string) => {
     setDeletingModelId(modelId);
     try {
-      const response = await deleteCustomModel(modelId, force);
-      if (!response.DeleteCustomModel.success && response.DeleteCustomModel.message?.includes('in use')) {
-        // Model is in use — show confirmation dialog
-        setDeleteConfirmModelId(modelId);
-        setDeleteConfirmMessage(response.DeleteCustomModel.message || 'Model is currently in use by agent configurations.');
-        setDeleteForce(true);
-        setDeleteConfirmVisible(true);
-      } else if (response.DeleteCustomModel.success) {
+      const response = await deleteCustomModel(modelId);
+      if (response.DeleteCustomModel.success) {
         addFlash('success', 'Model deleted successfully.');
         await loadCustomModels();
       } else {
@@ -310,14 +299,24 @@ export default function FineTuningPage() {
     }
   };
 
-  const handleConfirmForceDelete = async () => {
-    setDeleteConfirmVisible(false);
-    if (deleteConfirmModelId) {
-      await handleDeleteModel(deleteConfirmModelId, true);
+  const handleUndeployModel = async (modelId: string) => {
+    setUndeployingModelId(modelId);
+    try {
+      const response = await undeployCustomModel(modelId);
+      if (response.UndeployCustomModel.success) {
+        addFlash('success', 'Model undeployed successfully.');
+        await loadCustomModels();
+      } else if (response.UndeployCustomModel.statusCode === 409) {
+        addFlash('error', response.UndeployCustomModel.message || 'Model is currently in use by agent configurations.');
+      } else {
+        addFlash('error', `Failed to undeploy model: ${response.UndeployCustomModel.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'An unexpected error occurred.';
+      addFlash('error', `Failed to undeploy model: ${message}`);
+    } finally {
+      setUndeployingModelId(null);
     }
-    setDeleteConfirmModelId(null);
-    setDeleteConfirmMessage('');
-    setDeleteForce(false);
   };
   return (
     <SpaceBetween size="l">
@@ -535,18 +534,29 @@ export default function FineTuningPage() {
               header: 'Actions',
               cell: (item: CustomModelResponse) => (
                 <SpaceBetween size="xs" direction="horizontal">
-                  <Button
-                    variant="normal"
-                    onClick={() => handleDeployModel(item.modelId)}
-                    loading={deployingModelId === item.modelId}
-                    disabled={item.status !== 'Registered' && item.status !== 'Failed'}
-                  >
-                    Deploy
-                  </Button>
+                  {(item.status === 'Registered' || item.status === 'Failed') && (
+                    <Button
+                      variant="normal"
+                      onClick={() => handleDeployModel(item.modelId)}
+                      loading={deployingModelId === item.modelId}
+                    >
+                      Deploy
+                    </Button>
+                  )}
+                  {item.status === 'Deployed' && (
+                    <Button
+                      variant="normal"
+                      onClick={() => handleUndeployModel(item.modelId)}
+                      loading={undeployingModelId === item.modelId}
+                    >
+                      Undeploy
+                    </Button>
+                  )}
                   <Button
                     variant="normal"
                     onClick={() => handleDeleteModel(item.modelId)}
                     loading={deletingModelId === item.modelId}
+                    disabled={item.status === 'Deployed' || item.status === 'Deploying'}
                   >
                     Delete
                   </Button>
@@ -569,36 +579,6 @@ export default function FineTuningPage() {
         />
       </Container>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        visible={deleteConfirmVisible}
-        onDismiss={() => {
-          setDeleteConfirmVisible(false);
-          setDeleteConfirmModelId(null);
-          setDeleteConfirmMessage('');
-          setDeleteForce(false);
-        }}
-        header="Confirm Delete"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => {
-                setDeleteConfirmVisible(false);
-                setDeleteConfirmModelId(null);
-                setDeleteConfirmMessage('');
-                setDeleteForce(false);
-              }}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={handleConfirmForceDelete}>
-                Force Delete
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
-      >
-        {deleteConfirmMessage} Are you sure you want to force-delete this model?
-      </Modal>
     </SpaceBetween>
   );
 }
