@@ -792,11 +792,29 @@ def handler(event, context):
         elif event['RequestType'] == 'Delete':
             domain_id = event['ResourceProperties']['DomainId']
             space_name = event['ResourceProperties']['SpaceName']
+            # First stop/delete any running apps
             try:
                 sm.delete_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
+                # Wait for app to be deleted
+                for _ in range(30):
+                    try:
+                        sm.describe_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
+                        time.sleep(10)
+                    except:
+                        break
             except: pass
+            # Then delete the space and wait for it
             try:
                 sm.delete_space(DomainId=domain_id, SpaceName=space_name)
+                for _ in range(30):
+                    try:
+                        resp = sm.describe_space(DomainId=domain_id, SpaceName=space_name)
+                        if resp.get('Status') == 'Deleting':
+                            time.sleep(10)
+                        else:
+                            break
+                    except:
+                        break
             except: pass
             cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
         else:
