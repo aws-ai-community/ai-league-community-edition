@@ -18,9 +18,9 @@ import {
   deployCustomModel,
   deleteCustomModel,
   getCustomModelStatus,
+  getStudioPresignedUrl,
   CustomModelResponse,
 } from '../../services/graphqlClient';
-import { loadSettings } from '../../services/settingsLoader';
 
 // --- Token Penalty Reduction Schedule ---
 
@@ -95,7 +95,7 @@ const TRAINING_JOB_ARN_PATTERN = /^arn:aws:sagemaker:[a-z0-9-]+:\d{12}:training-
 
 export default function FineTuningPage() {
   const [downloadingArtifact, setDownloadingArtifact] = useState<string | null>(null);
-  const [sagemakerStudioUrl, setSagemakerStudioUrl] = useState<string>('');
+  const [openingStudio, setOpeningStudio] = useState(false);
 
   // Registration form state
   const [modelName, setModelName] = useState('');
@@ -144,17 +144,6 @@ export default function FineTuningPage() {
     } finally {
       setLoadingModels(false);
     }
-  }, []);
-
-  // Load SageMaker Studio URL from settings
-  useEffect(() => {
-    loadSettings().then((settings) => {
-      if (settings.sagemakerStudioUrl) {
-        setSagemakerStudioUrl(settings.sagemakerStudioUrl);
-      }
-    }).catch(() => {
-      // Settings load failed - SageMaker URL will remain empty
-    });
   }, []);
 
   useEffect(() => {
@@ -247,6 +236,24 @@ export default function FineTuningPage() {
       addFlash('error', `Failed to register model: ${message}`);
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const handleOpenStudio = async () => {
+    setOpeningStudio(true);
+    try {
+      const response = await getStudioPresignedUrl();
+      const url = response.GetStudioPresignedUrl.url;
+      if (url) {
+        window.open(url, '_blank');
+      } else {
+        addFlash('error', response.GetStudioPresignedUrl.error || 'Failed to generate Studio URL');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to open SageMaker Studio';
+      addFlash('error', message);
+    } finally {
+      setOpeningStudio(false);
     }
   };
 
@@ -365,8 +372,8 @@ export default function FineTuningPage() {
             <Button
               variant="primary"
               iconName="external"
-              onClick={() => window.open(sagemakerStudioUrl, '_blank')}
-              disabled={!sagemakerStudioUrl}
+              onClick={handleOpenStudio}
+              loading={openingStudio}
             >
               Open SageMaker Studio
             </Button>

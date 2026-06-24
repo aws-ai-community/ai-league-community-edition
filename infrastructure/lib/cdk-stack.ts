@@ -1278,6 +1278,10 @@ def handler(event, context):
       typeName: 'Query',
       fieldName: 'GetTrainingArtifactUrl',
     });
+    agenticDataSource.createResolver('GetStudioPresignedUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetStudioPresignedUrl',
+    });
 
     // Fine-Tuning Mutation resolvers
     agenticDataSource.createResolver('RegisterCustomModelResolver', {

@@ -208,6 +208,11 @@ type TrainingArtifactUrlResponse @aws_cognito_user_pools {
   expiresIn: Int!
 }
 
+type StudioPresignedUrlResponse @aws_cognito_user_pools {
+  url: String!
+  error: String
+}
+
 type Query {
   GetMap(mapId: String!): MapResponse @aws_api_key @aws_cognito_user_pools
   GetGameSession(sessionId: String!): GameSessionResponse @aws_api_key @aws_cognito_user_pools
@@ -230,6 +235,7 @@ type Query {
   ListCustomModels: [CustomModel!]! @aws_cognito_user_pools
   GetCustomModelStatus(modelId: String!): CustomModel @aws_cognito_user_pools
   GetTrainingArtifactUrl(artifactKey: String!): TrainingArtifactUrlResponse @aws_cognito_user_pools
+  GetStudioPresignedUrl: StudioPresignedUrlResponse @aws_cognito_user_pools
 }
 
 type Mutation {

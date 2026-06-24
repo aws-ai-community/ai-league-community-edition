@@ -145,6 +145,7 @@ def handler(event, context):
         "RegisterCustomModel": fine_tuning_handlers.handle_register_custom_model,
         "DeployCustomModel": fine_tuning_handlers.handle_deploy_custom_model,
         "DeleteCustomModel": fine_tuning_handlers.handle_delete_custom_model,
+        "GetStudioPresignedUrl": fine_tuning_handlers.handle_get_studio_presigned_url,
     }
 
     handler_fn = handlers.get(field_name)

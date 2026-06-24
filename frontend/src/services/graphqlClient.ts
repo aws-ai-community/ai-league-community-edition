@@ -866,6 +866,23 @@ export async function getTrainingArtifactUrl(artifactKey: string): Promise<{ Get
   return graphqlRequest<{ GetTrainingArtifactUrl: TrainingArtifactUrlResponse }>(query, { artifactKey }, true);
 }
 
+export interface StudioPresignedUrlResponse {
+  url: string;
+  error: string | null;
+}
+
+export async function getStudioPresignedUrl(): Promise<{ GetStudioPresignedUrl: StudioPresignedUrlResponse }> {
+  const query = `
+    query GetStudioPresignedUrl {
+      GetStudioPresignedUrl {
+        url
+        error
+      }
+    }
+  `;
+  return graphqlRequest<{ GetStudioPresignedUrl: StudioPresignedUrlResponse }>(query, undefined, true);
+}
+
 // --- Fine-Tuning Types and Helpers ---
 
 export interface CustomModelResponse {
