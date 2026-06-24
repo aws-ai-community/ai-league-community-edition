@@ -376,6 +376,9 @@ export default function FineTuningPage() {
             <Box variant="small" color="text-body-secondary">
               If you see an "Invalid or Expired Auth Token" error, you may need to add <code>{window.location.origin}</code> to your browser's list of sites allowed to use third-party cookies.
             </Box>
+            <Box variant="small" color="text-body-secondary">
+              You may need to request a quota increase for "Maximum number of concurrent model customization serverless jobs per Region" in your deployment region before submitting a training job.
+            </Box>
           </SpaceBetween>
 
           <SpaceBetween size="m">
