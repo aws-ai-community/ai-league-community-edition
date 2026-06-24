@@ -373,6 +373,9 @@ export default function FineTuningPage() {
             >
               Open SageMaker Studio
             </Button>
+            <Box variant="small" color="text-body-secondary">
+              If you see an "Invalid or Expired Auth Token" error, you may need to add <code>*.sagemaker.aws</code> to your browser's list of sites allowed to use third-party cookies.
+            </Box>
           </SpaceBetween>
 
           <SpaceBetween size="m">
