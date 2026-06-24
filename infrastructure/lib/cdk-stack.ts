@@ -579,7 +579,10 @@ def handler(event, context):
 
     // SageMaker execution role
     const smExecRole = new iam.Role(this, 'SageMakerExecRole', {
-      assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+        new iam.ServicePrincipal('lambda.amazonaws.com'),
+      ),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerFullAccess'),
       ],

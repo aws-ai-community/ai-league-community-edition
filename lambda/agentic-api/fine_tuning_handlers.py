@@ -1057,7 +1057,7 @@ def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:
         return {"url": "", "error": "SageMaker not configured"}
 
     # Landing URI to the Qwen model page for fine-tuning
-    landing_uri = "studio::relative/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b"
+    landing_uri = "studio::/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b"
 
     try:
         sm = boto3.client("sagemaker")
