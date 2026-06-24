@@ -1044,8 +1044,8 @@ def handle_reset_custom_models(user_id: str) -> None:
 def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:
     """Generate a presigned URL for SageMaker Studio that auto-authenticates.
 
-    Uses create_presigned_domain_url with a LandingUri to redirect to the
-    models/fine-tuning page after authentication.
+    Gets a presigned URL for Studio home, then modifies it to redirect
+    to the models/fine-tuning page after authentication.
 
     Returns:
         {url: str, error: str|None}
@@ -1056,9 +1056,6 @@ def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:
     if not domain_id or not user_profile_name:
         return {"url": "", "error": "SageMaker not configured"}
 
-    # Landing URI to the Qwen model page for fine-tuning
-    landing_uri = "studio::/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b"
-
     try:
         sm = boto3.client("sagemaker")
         resp = sm.create_presigned_domain_url(
@@ -1066,9 +1063,15 @@ def handle_get_studio_presigned_url(arguments: dict, event: dict) -> dict:
             UserProfileName=user_profile_name,
             ExpiresInSeconds=300,
             SessionExpirationDurationInSeconds=43200,
-            LandingUri=landing_uri,
         )
-        return {"url": resp.get("AuthorizedUrl", ""), "error": None}
+        presigned_url = resp.get("AuthorizedUrl", "")
+
+        # Append redirect to the model page after authentication
+        if presigned_url:
+            separator = "&" if "?" in presigned_url else "?"
+            presigned_url = f"{presigned_url}{separator}redirect=/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b"
+
+        return {"url": presigned_url, "error": None}
     except Exception as e:
         logger.error("Failed to generate Studio presigned URL: %s", e)
         return {"url": "", "error": str(e)}
