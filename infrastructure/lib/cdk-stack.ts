@@ -493,6 +493,79 @@ def handler(event, context):
     });
     agentRuntime.addDependency(triggerBuild.node.defaultChild as cdk.CfnResource);
 
+    // Force AgentCore Runtime to redeploy with the latest container image after each build
+    const forceRuntimeUpdateFn = new lambda.Function(this, 'ForceRuntimeUpdateFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(5),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import time
+
+def handler(event, context):
+    try:
+        if event['RequestType'] in ['Create', 'Update']:
+            props = event['ResourceProperties']
+            client = boto3.client('bedrock-agentcore-control')
+            runtime_id = props['RuntimeId']
+            container_uri = props['ContainerUri']
+            role_arn = props['RoleArn']
+
+            try:
+                client.update_agent_runtime(
+                    agentRuntimeId=runtime_id,
+                    agentRuntimeArtifact={'containerConfiguration': {'containerUri': container_uri}},
+                    roleArn=role_arn,
+                    networkConfiguration={'networkMode': 'PUBLIC'},
+                )
+                # Wait for runtime to become READY (up to 3 minutes)
+                for _ in range(18):
+                    time.sleep(10)
+                    resp = client.list_agent_runtimes()
+                    for rt in resp.get('agentRuntimes', []):
+                        if rt['agentRuntimeId'] == runtime_id:
+                            if rt['status'] == 'READY':
+                                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'READY'})
+                                return
+                            break
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'TIMEOUT'})
+            except Exception as e:
+                print(f'Update failed: {e}')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': str(e)})
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Error': str(e)})
+`),
+    });
+    forceRuntimeUpdateFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock-agentcore-control:UpdateAgentRuntime', 'bedrock-agentcore-control:ListAgentRuntimes'],
+      resources: ['*'],
+    }));
+    forceRuntimeUpdateFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [agentCoreRuntimeRole.roleArn],
+    }));
+
+    const forceRuntimeUpdateProvider = new cr.Provider(this, 'ForceRuntimeUpdateProvider', {
+      onEventHandler: forceRuntimeUpdateFn,
+    });
+
+    const forceRuntimeUpdate = new cdk.CustomResource(this, 'ForceRuntimeUpdate', {
+      serviceToken: forceRuntimeUpdateProvider.serviceToken,
+      properties: {
+        RuntimeId: 'communityAgentRuntime',  // Will be resolved after creation
+        ContainerUri: `${agentEcr.repositoryUri}:latest`,
+        RoleArn: agentCoreRuntimeRole.roleArn,
+        // Force update on every deploy by changing this value
+        BuildTimestamp: Date.now().toString(),
+      },
+    });
+    forceRuntimeUpdate.node.addDependency(triggerBuild);
+    forceRuntimeUpdate.node.addDependency(agentRuntime);
+
     // Pass the runtime role ARN to the agentic Lambda
     agenticLambda.addEnvironment('AGENTCORE_RUNTIME_ROLE_ARN', agentCoreRuntimeRole.roleArn);
 
