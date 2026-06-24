@@ -474,9 +474,11 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
 
     # Step 4: Call Bedrock CreateCustomModelDeployment
     training_job_arn = item.get("trainingJobArn", "")
+    model_name = item.get("name", "").replace(" ", "-").lower()[:50] or f"model-{model_id[:8]}"
     try:
         deploy_response = bedrock_client.create_custom_model_deployment(
-            modelSourceIdentifier=training_job_arn
+            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}",
+            modelArn=training_job_arn,
         )
         deployment_arn = deploy_response.get("customModelDeploymentArn", "")
     except Exception as e:
