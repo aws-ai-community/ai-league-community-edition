@@ -44,6 +44,7 @@ import {
   AgentVersionConfig,
   CustomModelResponse,
 } from '../../services/graphqlClient';
+import { loadSettings } from '../../services/settingsLoader';
 
 // --- Model definitions ---
 
@@ -54,16 +55,29 @@ interface ModelDefinition {
   description?: string;
 }
 
-const AVAILABLE_MODELS: ModelDefinition[] = [
-  { modelId: 'us.amazon.nova-2-lite-v1:0', displayName: 'Nova 2 Lite', provider: 'Amazon Nova', description: 'Default - covered by AWS credits' },
-  { modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', displayName: 'Claude Haiku 4.5', provider: 'Anthropic', description: 'Higher quality - not typically covered by AWS credits' },
-];
+function getRegionPrefix(defaultModelId?: string): string {
+  if (defaultModelId) {
+    const prefix = defaultModelId.split('.')[0];
+    if (['us', 'eu', 'ap'].includes(prefix)) return prefix;
+  }
+  return 'us';
+}
 
-const DEFAULT_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
+function getAvailableModels(regionPrefix: string): ModelDefinition[] {
+  return [
+    { modelId: `${regionPrefix}.amazon.nova-2-lite-v1:0`, displayName: 'Nova 2 Lite', provider: 'Amazon Nova', description: 'Default - covered by AWS credits' },
+    { modelId: `${regionPrefix}.anthropic.claude-haiku-4-5-20251001-v1:0`, displayName: 'Claude Haiku 4.5', provider: 'Anthropic', description: 'Higher quality - not typically covered by AWS credits' },
+  ];
+}
 
-function buildModelOptions(customModels: CustomModelResponse[] = []): SelectProps.Options {
+// Fallback values used before settings are loaded
+const FALLBACK_REGION_PREFIX = 'us';
+const FALLBACK_MODELS: ModelDefinition[] = getAvailableModels(FALLBACK_REGION_PREFIX);
+const FALLBACK_DEFAULT_MODEL_ID = `${FALLBACK_REGION_PREFIX}.amazon.nova-2-lite-v1:0`;
+
+function buildModelOptions(models: ModelDefinition[], customModels: CustomModelResponse[] = []): SelectProps.Options {
   const groups: Record<string, SelectProps.Option[]> = {};
-  for (const model of AVAILABLE_MODELS) {
+  for (const model of models) {
     if (!groups[model.provider]) {
       groups[model.provider] = [];
     }
@@ -90,8 +104,8 @@ function buildModelOptions(customModels: CustomModelResponse[] = []): SelectProp
   }));
 }
 
-function findModelOption(modelId: string, customModels: CustomModelResponse[] = []): SelectProps.Option | null {
-  const model = AVAILABLE_MODELS.find((m) => m.modelId === modelId);
+function findModelOption(modelId: string, models: ModelDefinition[], customModels: CustomModelResponse[] = []): SelectProps.Option | null {
+  const model = models.find((m) => m.modelId === modelId);
   if (model) return { label: model.displayName, value: model.modelId };
 
   // Check custom models by deploymentArn
@@ -106,11 +120,15 @@ const NONE_OPTION: SelectProps.Option = { label: 'None', value: '__none__' };
 // --- Component ---
 
 export default function AgentBuilderPage() {
+  // Region-aware model state
+  const [availableModels, setAvailableModels] = useState<ModelDefinition[]>(FALLBACK_MODELS);
+  const [defaultModelId, setDefaultModelId] = useState<string>(FALLBACK_DEFAULT_MODEL_ID);
+
   // Supervisor config state
   const [name, setName] = useState('My Agent');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [selectedModel, setSelectedModel] = useState<SelectProps.Option | null>(
-    findModelOption(DEFAULT_MODEL_ID),
+    findModelOption(FALLBACK_DEFAULT_MODEL_ID, FALLBACK_MODELS),
   );
   const [selectedSubAgents, setSelectedSubAgents] = useState<Set<string>>(new Set());
   const [selectedLambdaTools, setSelectedLambdaTools] = useState<Set<string>>(new Set());
@@ -135,7 +153,7 @@ export default function AgentBuilderPage() {
   const [subAgentFormName, setSubAgentFormName] = useState('');
   const [subAgentFormPrompt, setSubAgentFormPrompt] = useState('');
   const [subAgentFormModel, setSubAgentFormModel] = useState<SelectProps.Option | null>(
-    findModelOption(DEFAULT_MODEL_ID),
+    findModelOption(FALLBACK_DEFAULT_MODEL_ID, FALLBACK_MODELS),
   );
   const [subAgentFormTools, setSubAgentFormTools] = useState<Set<string>>(new Set());
   const [savingSubAgent, setSavingSubAgent] = useState(false);
@@ -205,6 +223,17 @@ export default function AgentBuilderPage() {
     async function loadData() {
       setLoading(true);
       try {
+        // Load settings to get region-aware default model ID
+        const settings = await loadSettings();
+        const resolvedDefaultModelId = settings.defaultModelId || FALLBACK_DEFAULT_MODEL_ID;
+        const regionPrefix = getRegionPrefix(resolvedDefaultModelId);
+        const models = getAvailableModels(regionPrefix);
+
+        if (!cancelled) {
+          setAvailableModels(models);
+          setDefaultModelId(resolvedDefaultModelId);
+        }
+
         const [supervisorRes, subAgentsRes, lambdaToolsRes, memoryToolsRes, guardrailToolsRes, versionsRes, customModelsRes] =
           await Promise.all([
             getSupervisorAgent(),
@@ -244,7 +273,7 @@ export default function AgentBuilderPage() {
         if (config) {
           setName(config.name || 'My Agent');
           setSystemPrompt(config.systemPrompt || '');
-          setSelectedModel(findModelOption(config.modelId, fetchedCustomModels) || findModelOption(DEFAULT_MODEL_ID));
+          setSelectedModel(findModelOption(config.modelId, models, fetchedCustomModels) || findModelOption(resolvedDefaultModelId, models));
           setSelectedSubAgents(new Set(config.subAgents || []));
           setSelectedLambdaTools(new Set(config.lambdaTools || []));
 
@@ -285,7 +314,7 @@ export default function AgentBuilderPage() {
       await updateSupervisorAgent({
         name,
         systemPrompt,
-        modelId: selectedModel?.value || DEFAULT_MODEL_ID,
+        modelId: selectedModel?.value || defaultModelId,
         subAgents: Array.from(selectedSubAgents),
         lambdaTools: Array.from(selectedLambdaTools),
         memoryTool: selectedMemoryTool.value === '__none__' ? null : selectedMemoryTool.value ?? null,
@@ -329,7 +358,7 @@ export default function AgentBuilderPage() {
     setEditingSubAgentId(null);
     setSubAgentFormName('');
     setSubAgentFormPrompt('');
-    setSubAgentFormModel(findModelOption(DEFAULT_MODEL_ID));
+    setSubAgentFormModel(findModelOption(defaultModelId, availableModels));
     setSubAgentFormTools(new Set());
   };
 
@@ -342,7 +371,7 @@ export default function AgentBuilderPage() {
     setEditingSubAgentId(agent.agentId);
     setSubAgentFormName(agent.name);
     setSubAgentFormPrompt(agent.systemPrompt || '');
-    setSubAgentFormModel(findModelOption(agent.modelId, customModels) || findModelOption(DEFAULT_MODEL_ID));
+    setSubAgentFormModel(findModelOption(agent.modelId, availableModels, customModels) || findModelOption(defaultModelId, availableModels));
     setSubAgentFormTools(new Set(agent.lambdaTools || []));
     setShowSubAgentForm(true);
   };
@@ -353,7 +382,7 @@ export default function AgentBuilderPage() {
       const config = {
         name: subAgentFormName,
         systemPrompt: subAgentFormPrompt,
-        modelId: subAgentFormModel?.value || DEFAULT_MODEL_ID,
+        modelId: subAgentFormModel?.value || defaultModelId,
         lambdaTools: Array.from(subAgentFormTools),
       };
 
@@ -611,7 +640,7 @@ export default function AgentBuilderPage() {
     ...guardrailTools.map((g) => ({ label: g.name, value: g.toolId, description: g.status || '' })),
   ];
 
-  const modelOptions = buildModelOptions(customModels);
+  const modelOptions = buildModelOptions(availableModels, customModels);
 
   if (loading) {
     return (
@@ -771,7 +800,7 @@ export default function AgentBuilderPage() {
                     id: 'modelId',
                     header: 'Model',
                     cell: (item) => {
-                      const model = AVAILABLE_MODELS.find((m) => m.modelId === item.modelId);
+                      const model = availableModels.find((m) => m.modelId === item.modelId);
                       if (model) return model.displayName;
                       const custom = customModels.find((m) => m.deploymentArn === item.modelId && m.status === 'Deployed');
                       if (custom) return `${custom.name} (Custom)`;
@@ -1565,7 +1594,7 @@ export default function AgentBuilderPage() {
                         )}
                         {config.modelId && (
                           <FormField label="Model">
-                            <Box>{AVAILABLE_MODELS.find((m) => m.modelId === config.modelId)?.displayName || (customModels.find((m) => m.deploymentArn === config.modelId && m.status === 'Deployed')?.name ? `${customModels.find((m) => m.deploymentArn === config.modelId)?.name} (Custom)` : config.modelId)}</Box>
+                            <Box>{availableModels.find((m) => m.modelId === config.modelId)?.displayName || (customModels.find((m) => m.deploymentArn === config.modelId && m.status === 'Deployed')?.name ? `${customModels.find((m) => m.deploymentArn === config.modelId)?.name} (Custom)` : config.modelId)}</Box>
                           </FormField>
                         )}
                         {config.systemPrompt && (

@@ -45,6 +45,15 @@ def _get_required_env(name: str) -> str:
 # Fail fast on cold start if required env var is missing
 AGENT_CONFIGURATIONS_TABLE = _get_required_env("AGENT_CONFIGURATIONS_TABLE")
 
+
+def _get_region_model_prefix() -> str:
+    """Derive model prefix from AWS region. e.g. us-east-1 -> 'us', eu-west-1 -> 'eu'."""
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    return region.split("-")[0]
+
+
+DEFAULT_MODEL_ID = f"{_get_region_model_prefix()}.amazon.nova-2-lite-v1:0"
+
 # DynamoDB resource and table reference
 dynamodb = boto3.resource("dynamodb")
 agent_configurations_table = dynamodb.Table(AGENT_CONFIGURATIONS_TABLE)
@@ -67,7 +76,7 @@ DEFAULT_SUPERVISOR_CONFIG = {
         "- For pathfinding: Return ONLY the path array like [\"right\",\"down\",\"left\"]\n"
         "- No explanations, no thinking tags, no other text"
     ),
-    "modelId": "us.amazon.nova-2-lite-v1:0",
+    "modelId": DEFAULT_MODEL_ID,
     "subAgents": [],
     "lambdaTools": [],
     "memoryTool": None,
@@ -90,7 +99,7 @@ DEFAULT_PATHFINDER_SUBAGENT = {
         "3. NO explanations, NO text, just the JSON array\n\n"
         "RESPONSE FORMAT: Only output the path array like [\"right\",\"down\",\"left\"]"
     ),
-    "modelId": "us.amazon.nova-2-lite-v1:0",
+    "modelId": DEFAULT_MODEL_ID,
     "lambdaTools": ["pathfinder-default"],
 }
 
@@ -521,7 +530,7 @@ def handle_create_sub_agent(arguments: dict, event: dict) -> dict:
 
     name = arguments.get("name", "")
     system_prompt = arguments.get("systemPrompt", "")
-    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
+    model_id = arguments.get("modelId", DEFAULT_MODEL_ID)
     lambda_tools = arguments.get("lambdaTools", [])
 
     item = {
@@ -958,7 +967,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
     1. Fetches the Lambda function code via lambda:GetFunction + download ZIP
     2. Extracts .py files, truncates combined source to 8000 characters
     3. Loads persisted Schema_Generation_Model from DynamoDB (SCHEMA_MODEL_CONFIG SK)
-       - If not set, defaults to 'us.amazon.nova-2-lite-v1:0'
+       - If not set, defaults to DEFAULT_MODEL_ID
     4. Calls Bedrock Converse with configured model and schema generation prompt
     5. Parses JSON response into Tool_Schema (MCP-compatible: name, description, inputSchema)
     6. Finds or creates Gateway target with the schema
@@ -1016,7 +1025,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
             source_code = source_code_truncated
 
             # 2. Load persisted schema generation model from DynamoDB
-            model_id = "us.amazon.nova-2-lite-v1:0"
+            model_id = DEFAULT_MODEL_ID
             if user_id:
                 try:
                     model_config_resp = agent_configurations_table.get_item(
@@ -2044,7 +2053,7 @@ def handle_save_schema_model_config(arguments: dict, event: dict) -> dict:
     user_id = _get_user_id(event)
     now = _now_iso()
 
-    model_id = arguments.get("modelId", "us.amazon.nova-2-lite-v1:0")
+    model_id = arguments.get("modelId", DEFAULT_MODEL_ID)
 
     item = {
         "userId": user_id,
@@ -2065,7 +2074,7 @@ def handle_save_schema_model_config(arguments: dict, event: dict) -> dict:
 def handle_get_schema_model_config(arguments: dict, event: dict) -> dict:
     """Retrieve the user's chosen schema generation model from DynamoDB.
 
-    Returns the persisted modelId, or the default (us.amazon.nova-2-lite-v1:0) if not set.
+    Returns the persisted modelId, or the default (DEFAULT_MODEL_ID) if not set.
 
     Requirements: 8.2
     """
@@ -2077,13 +2086,13 @@ def handle_get_schema_model_config(arguments: dict, event: dict) -> dict:
         )
     except Exception as e:
         logger.error("Error loading schema model config for user %s: %s", user_id, e)
-        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
+        return {"modelId": DEFAULT_MODEL_ID}
 
     item = response.get("Item")
     if not item:
-        return {"modelId": "us.amazon.nova-2-lite-v1:0"}
+        return {"modelId": DEFAULT_MODEL_ID}
 
-    return {"modelId": item.get("modelId", "us.amazon.nova-2-lite-v1:0")}
+    return {"modelId": item.get("modelId", DEFAULT_MODEL_ID)}
 
 
 # ---------------------------------------------------------------------------

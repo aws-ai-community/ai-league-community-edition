@@ -18,7 +18,7 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from bedrock_agentcore.memory import MemoryClient
 from strands import Agent, tool
 from strands.models import BedrockModel
-from agent_utils import get_region_from_config, create_streamable_http_transport, create_sagemaker_model
+from agent_utils import get_region_from_config, create_streamable_http_transport, create_sagemaker_model, DEFAULT_MODEL_ID
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.executors import ConcurrentToolExecutor, SequentialToolExecutor
@@ -282,7 +282,7 @@ def create_orchestrator_agent(session_id: str = None, tools: Optional[List] = No
 
     # Default model configuration
     model_config = {
-        "model_id": model_id or "us.amazon.nova-2-lite-v1:0",
+        "model_id": model_id or DEFAULT_MODEL_ID,
         "max_tokens": 8192,
         "streaming": True
     }

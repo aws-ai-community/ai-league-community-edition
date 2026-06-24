@@ -11,6 +11,15 @@ from streamable_http_sigv4 import streamablehttp_client_with_sigv4
 logger = logging.getLogger(__name__)
 
 
+def _get_region_model_prefix() -> str:
+    """Derive model prefix from AWS region. e.g. us-east-1 -> 'us', eu-west-1 -> 'eu'."""
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    return region.split("-")[0]
+
+
+DEFAULT_MODEL_ID = f"{_get_region_model_prefix()}.amazon.nova-2-lite-v1:0"
+
+
 def get_region_from_config():
     """Get region from environment or config file."""
     try:

@@ -1594,10 +1594,12 @@ def handler(event, context):
     });
 
     // Agentic Game Engine settings deployed as settings.json
+    const regionPrefix = this.region.startsWith('eu-') ? 'eu' : this.region.startsWith('ap-') ? 'ap' : 'us';
     const settingsAsset = s3deploy.Source.jsonData('settings.json', {
       graphql: { endpoint: agenticApi.graphqlUrl },
       graphqlApiKey: agenticApi.apiKey,
       sagemakerStudioUrl: `https://studio-${smDomain.attrDomainId}.studio.${this.region}.sagemaker.aws/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b`,
+      defaultModelId: `${regionPrefix}.amazon.nova-2-lite-v1:0`,
       auth: {
         cognito: {
           userPoolId: this.userPool.userPoolId,

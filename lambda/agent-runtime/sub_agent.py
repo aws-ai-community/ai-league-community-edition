@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List
 from strands import Agent, tool
 from strands.models import BedrockModel
-from agent_utils import create_streamable_http_transport, create_sagemaker_model
+from agent_utils import create_streamable_http_transport, create_sagemaker_model, DEFAULT_MODEL_ID
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp.mcp_client import MCPClient
 
@@ -61,7 +61,7 @@ def create_sub_agent(agent_id: str, gateway_url: str, model_id: str = None, syst
             logger.info(f"  Tool {i+1}: {tool.__dict__}")
 
         # Use provided model_id or default
-        agent_model_id = model_id or "us.amazon.nova-2-lite-v1:0"
+        agent_model_id = model_id or DEFAULT_MODEL_ID
 
         # Use provided system prompt or get from config
         agent_system_prompt = system_prompt or get_system_prompt(agent_id)
