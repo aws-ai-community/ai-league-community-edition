@@ -134,6 +134,7 @@ def handle_get_training_artifact_url(arguments: dict, event: dict) -> dict:
             Params={
                 "Bucket": TRAINING_ARTIFACTS_BUCKET,
                 "Key": f"samples/{artifact_key}",
+                "ResponseContentDisposition": f"attachment; filename=\"{artifact_key}\"",
             },
             ExpiresIn=3600,
         )

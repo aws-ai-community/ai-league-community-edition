@@ -262,13 +262,9 @@ export default function FineTuningPage() {
     try {
       const response = await getTrainingArtifactUrl(artifactKey);
       const url = response.GetTrainingArtifactUrl.url;
-      // Force download instead of opening in browser
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = artifactKey;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // S3 presigned URL includes ResponseContentDisposition=attachment header
+      // which forces the browser to download instead of displaying
+      window.location.href = url;
     } catch (error) {
       console.error(`Failed to download artifact ${artifactKey}:`, error);
     } finally {
