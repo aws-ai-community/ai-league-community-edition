@@ -934,6 +934,10 @@ def handler(event, context):
     agenticLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
+        'bedrock:CreateCustomModel',
+        'bedrock:GetCustomModel',
+        'bedrock:DeleteCustomModel',
+        'bedrock:ListCustomModels',
         'bedrock:CreateCustomModelDeployment',
         'bedrock:GetCustomModelDeployment',
         'bedrock:DeleteCustomModelDeployment',
@@ -947,6 +951,18 @@ def handler(event, context):
       effect: iam.Effect.ALLOW,
       actions: ['sagemaker:DescribeTrainingJob'],
       resources: [`arn:aws:sagemaker:${this.region}:${this.account}:training-job/*`],
+    }));
+
+    // Grant Lambda permission to pass SageMaker role to Bedrock for model import
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: [smExecRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'bedrock.amazonaws.com',
+        },
+      },
     }));
 
     // ========================================================================

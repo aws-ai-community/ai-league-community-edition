@@ -473,18 +473,90 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
             "updatedAt": item.get("updatedAt"),
         }
 
-    # Step 4: Call Bedrock CreateCustomModelDeployment
+    # Step 4: Get model artifacts S3 URI from the training job
     training_job_arn = item.get("trainingJobArn", "")
     model_name = item.get("name", "").replace(" ", "-").lower()[:50] or f"model-{model_id[:8]}"
     try:
+        job_name = training_job_arn.split("/")[-1]
+        job_details = sagemaker_client.describe_training_job(TrainingJobName=job_name)
+        model_s3_uri = job_details.get("ModelArtifacts", {}).get("S3ModelArtifacts", "")
+        role_arn = job_details.get("RoleArn", "")
+
+        if not model_s3_uri:
+            raise ValueError("Training job has no model artifacts S3 URI")
+        if not role_arn:
+            raise ValueError("Training job has no RoleArn")
+
+        logger.info(
+            "Deploy: Got model artifacts for %s: s3=%s, role=%s",
+            model_id, model_s3_uri, role_arn
+        )
+    except Exception as e:
+        failure_reason = f"Failed to get training job details: {e}"
+        logger.error("Deploy: %s for user %s, modelId %s", failure_reason, user_id, model_id)
+        failed_now = _now_iso()
+        try:
+            agent_configurations_table.update_item(
+                Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                UpdateExpression="SET #status = :failed, failureReason = :reason, updatedAt = :now",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={":failed": "Failed", ":reason": failure_reason, ":now": failed_now},
+            )
+        except Exception:
+            pass
+        return {
+            "modelId": model_id, "userId": user_id, "name": item.get("name", ""),
+            "trainingJobArn": training_job_arn, "deploymentArn": None,
+            "status": "Failed", "baseModelId": item.get("baseModelId"),
+            "failureReason": failure_reason,
+            "createdAt": item.get("createdAt"), "updatedAt": failed_now,
+        }
+
+    # Step 5: Import model into Bedrock as a custom model
+    bedrock_model_name = f"ft-{model_id[:8]}-{model_name}"[:63]
+    try:
+        import_response = bedrock_client.create_custom_model(
+            modelName=bedrock_model_name,
+            modelSourceConfig={
+                "s3DataSource": {"s3Uri": model_s3_uri}
+            },
+            roleArn=role_arn,
+        )
+        bedrock_model_arn = import_response.get("modelArn", "")
+        logger.info(
+            "Deploy: Imported model into Bedrock: modelArn=%s for modelId=%s",
+            bedrock_model_arn, model_id
+        )
+    except Exception as e:
+        failure_reason = f"Failed to import model into Bedrock: {e}"
+        logger.error("Deploy: %s for user %s, modelId %s", failure_reason, user_id, model_id)
+        failed_now = _now_iso()
+        try:
+            agent_configurations_table.update_item(
+                Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                UpdateExpression="SET #status = :failed, failureReason = :reason, updatedAt = :now",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={":failed": "Failed", ":reason": failure_reason, ":now": failed_now},
+            )
+        except Exception:
+            pass
+        return {
+            "modelId": model_id, "userId": user_id, "name": item.get("name", ""),
+            "trainingJobArn": training_job_arn, "deploymentArn": None,
+            "status": "Failed", "baseModelId": item.get("baseModelId"),
+            "failureReason": failure_reason,
+            "createdAt": item.get("createdAt"), "updatedAt": failed_now,
+        }
+
+    # Step 6: Deploy the Bedrock custom model for on-demand inference
+    try:
         deploy_response = bedrock_client.create_custom_model_deployment(
-            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}",
-            modelArn=training_job_arn,
+            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}"[:63],
+            modelArn=bedrock_model_arn,
         )
         deployment_arn = deploy_response.get("customModelDeploymentArn", "")
     except Exception as e:
-        # Step 6: On failure — update status to "Failed", store failureReason
-        failure_reason = str(e)
+        failure_reason = f"Model imported but deployment failed: {e}"
         logger.error(
             "Bedrock CreateCustomModelDeployment failed for user %s, modelId %s: %s",
             user_id, model_id, failure_reason
