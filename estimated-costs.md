@@ -22,6 +22,7 @@ The base cost of keeping the solution deployed with no active usage.
 | AgentCore Runtime | Container (idle) | ~$0.00 | No charge when not processing requests |
 | AgentCore Gateway | MCP Gateway | ~$0.00 | No idle cost |
 | SageMaker | Domain + User Profile | ~$0.00 | No cost when Code Editor is stopped |
+| SageMaker | Code Editor (if left running) | $0.05/hour | Auto-stops after 4 hours idle; max ~$0.20 if forgotten |
 | API Gateway | REST API | ~$0.00 | $3.50/million requests; negligible at low volume |
 | CloudWatch | Logs | ~$0.50 | Log ingestion + storage from Lambda/CodeBuild |
 | VPC | SageMaker VPC (no NAT) | ~$0.00 | Public subnets only, no NAT gateway |
@@ -49,7 +50,6 @@ Cost breakdown for a single game play (one map run with agent invocation).
 | Model | Estimated Cost/Game | Notes |
 |-------|-------------------|-------|
 | Amazon Nova Lite 2 | $0.15–$0.40 | Default, cheapest option |
-| Amazon Nova Pro 2 | $0.40–$1.00 | Higher quality, higher cost |
 | Claude Haiku 4.5 | $0.50–$1.50 | Not covered by AWS credits |
 | Custom fine-tuned model | $0.15–$0.40 + deployment cost | Same inference pricing as base model |
 
@@ -77,9 +77,26 @@ Cost breakdown for training a custom model via SageMaker RLVR.
 
 ### Deployment costs (after training)
 
+Once trained, the custom model needs to be deployed to be used for inference.
+
 | Resource | Cost | Notes |
 |----------|------|-------|
-| Bedrock Custom Model Deployment | Varies by model unit | Charged while deployed; undeploy when not in use |
+| Bedrock Custom Model Deployment (on-demand) | Token-based | Same pricing model as base Bedrock models. For a small model like Qwen 3 0.6B, expect similar rates to Nova Lite (~$0.06/1M input, $0.24/1M output tokens). Only charged when processing inference requests — no idle cost |
+| Per game with deployed custom model | ~$0.15–$0.40 | Similar to Nova Lite 2 since the model is small (0.6B parameters) |
+
+> **Key point**: On-demand custom model deployments have **no idle cost** — you only pay for tokens processed during inference. This means you can leave a model deployed without incurring charges when it's not being used for games.
+
+### SageMaker Code Editor (IDE)
+
+The Code Editor is used for editing Lambda tool code. It runs on an ml.t3.medium instance.
+
+| Resource | Cost | Notes |
+|----------|------|-------|
+| ml.t3.medium (while running) | $0.05/hour | Only charged while the IDE is actively running |
+| Auto-stop | After 4 hours idle | The IDE automatically stops after 4 hours of inactivity to prevent runaway costs |
+| Storage (EBS) | ~$0.10/GB/month | Small volume for IDE workspace |
+
+> **Tip**: The IDE auto-stops after 4 hours of inactivity. If you forget to stop it manually, the maximum unexpected cost is ~$0.20 before auto-stop kicks in. You can also stop it manually from the Agent Builder page.
 
 > **Important**: Always set a `max_runtime_in_seconds` hard stop in your training hyperparameters to prevent runaway costs. Use the "Undeploy" button in the Fine-Tuning page when you're done testing.
 
@@ -87,10 +104,10 @@ Cost breakdown for training a custom model via SageMaker RLVR.
 
 ## Cost Optimisation Tips
 
-1. **Stop the SageMaker Code Editor** when not actively editing Lambda tools (saves ~$0.05/hour for ml.t3.medium)
-2. **Undeploy custom models** when not actively playing games with them
+1. **Stop the SageMaker Code Editor** when not actively editing Lambda tools — it auto-stops after 4 hours idle, but you can stop it manually to save ~$0.05/hour
+2. **Custom model deployments have no idle cost** — on-demand deployments only charge per token, so you can leave them deployed safely
 3. **Use Nova Lite 2** as your default model — it's the cheapest and covered by AWS credits
-4. **Set training hard stops** via `max_runtime_in_seconds` hyperparameter
+4. **Set training hard stops** via `max_runtime_in_seconds` hyperparameter to prevent runaway training costs
 5. **Use "Reset Configuration"** to clean up all deployed models when done experimenting
 6. **Run `cdk destroy`** when you're finished with the solution entirely — all resources including Bedrock deployments are automatically cleaned up
 

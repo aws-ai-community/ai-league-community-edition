@@ -9,7 +9,7 @@ The solution only runs in **us-east-1**
 | Item | Cost | Notes |
 |------|------|-------|
 | Monthly infrastructure | ~$2/month | Solution running in your account |
-| Per game attempt | $0.25–$1/game | Varies depending on token usage (Nova Lite 2) |
+| Per game attempt | $0.15–$0.70/game | Varies depending on token usage (Nova Lite 2) |
 | Fine-tuning a model | ~$30/model | Varies by configuration; service rate is $80/hour. Set a hardstop in hyperparameters to control cost |
 
 See [estimated-costs.md](estimated-costs.md) for a detailed breakdown by service.
