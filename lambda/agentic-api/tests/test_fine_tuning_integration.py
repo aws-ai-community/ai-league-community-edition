@@ -121,7 +121,7 @@ class TestDeployFlow:
     def test_deploy_registered_model_returns_deploying_with_deployment_arn(
         self, handlers, mock_event
     ):
-        """Registered model + deploy → returns status 'Deploying' with deploymentArn."""
+        """Registered model + deploy → returns status 'Deploying' with no deploymentArn (import is async)."""
         model_id = str(uuid.uuid4())
         arguments = {"modelId": model_id}
 
@@ -139,8 +139,15 @@ class TestDeployFlow:
             "updatedAt": "2024-01-01T00:00:00+00:00",
         }
 
-        deployment_arn = "arn:aws:bedrock:us-east-1:123456789012:custom-model-deployment/deploy-123"
-        mock_deploy_response = {"customModelDeploymentArn": deployment_arn}
+        mock_sagemaker_response = {
+            "ModelArtifacts": {"S3ModelArtifacts": "s3://bucket/model"},
+            "RoleArn": "arn:aws:iam::123:role/test",
+            "TrainingJobStatus": "Completed",
+        }
+
+        mock_import_response = {
+            "jobArn": "arn:aws:bedrock:us-east-1:123:model-import-job/test123"
+        }
 
         with patch.object(
             handlers.agent_configurations_table,
@@ -151,21 +158,25 @@ class TestDeployFlow:
             "update_item",
             return_value={},
         ), patch.object(
+            handlers.sagemaker_client,
+            "describe_training_job",
+            return_value=mock_sagemaker_response,
+        ), patch.object(
             handlers.bedrock_client,
-            "create_custom_model_deployment",
-            return_value=mock_deploy_response,
+            "create_model_import_job",
+            return_value=mock_import_response,
         ):
             result = handlers.handle_deploy_custom_model(arguments, mock_event)
 
         assert result["status"] == "Deploying"
-        assert result["deploymentArn"] == deployment_arn
+        assert result["deploymentArn"] is None
         assert result["modelId"] == model_id
         assert result["failureReason"] is None
 
     def test_deploy_failure_returns_failed_with_failure_reason(
         self, handlers, mock_event
     ):
-        """Registered model + Bedrock error → returns status 'Failed' with failureReason."""
+        """Registered model + Bedrock import error → returns status 'Failed' with failureReason."""
         model_id = str(uuid.uuid4())
         arguments = {"modelId": model_id}
 
@@ -181,6 +192,12 @@ class TestDeployFlow:
             "failureReason": None,
             "createdAt": "2024-01-01T00:00:00+00:00",
             "updatedAt": "2024-01-01T00:00:00+00:00",
+        }
+
+        mock_sagemaker_response = {
+            "ModelArtifacts": {"S3ModelArtifacts": "s3://bucket/model"},
+            "RoleArn": "arn:aws:iam::123:role/test",
+            "TrainingJobStatus": "Completed",
         }
 
         bedrock_error = Exception("ServiceQuotaExceededException: Deployment limit reached")
@@ -194,8 +211,12 @@ class TestDeployFlow:
             "update_item",
             return_value={},
         ), patch.object(
+            handlers.sagemaker_client,
+            "describe_training_job",
+            return_value=mock_sagemaker_response,
+        ), patch.object(
             handlers.bedrock_client,
-            "create_custom_model_deployment",
+            "create_model_import_job",
             side_effect=bedrock_error,
         ):
             result = handlers.handle_deploy_custom_model(arguments, mock_event)
@@ -364,7 +385,7 @@ class TestResetFlow:
 
         mock_bedrock_delete = MagicMock(return_value={})
         mock_dynamo_delete = MagicMock(return_value={})
-        mock_get_deployment = MagicMock(side_effect=Exception("ResourceNotFound"))
+        mock_get_imported = MagicMock(side_effect=Exception("ResourceNotFound"))
 
         with patch.object(
             handlers.agent_configurations_table,
@@ -372,12 +393,12 @@ class TestResetFlow:
             return_value={"Items": model_items},
         ), patch.object(
             handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_bedrock_delete,
         ), patch.object(
             handlers.bedrock_client,
-            "get_custom_model_deployment",
-            mock_get_deployment,
+            "get_imported_model",
+            mock_get_imported,
         ), patch.object(
             handlers.agent_configurations_table,
             "delete_item",
@@ -388,10 +409,10 @@ class TestResetFlow:
         # Verify Bedrock delete was called for both deployed models (not for the Registered one)
         assert mock_bedrock_delete.call_count == 2
         mock_bedrock_delete.assert_any_call(
-            customModelDeploymentIdentifier=deployment_arn_1
+            modelIdentifier=deployment_arn_1
         )
         mock_bedrock_delete.assert_any_call(
-            customModelDeploymentIdentifier=deployment_arn_2
+            modelIdentifier=deployment_arn_2
         )
 
         # Verify DynamoDB delete was called for ALL 3 models
@@ -440,7 +461,7 @@ class TestResetFlow:
             ]
         )
         mock_dynamo_delete = MagicMock(return_value={})
-        mock_get_deployment = MagicMock(side_effect=Exception("ResourceNotFound"))
+        mock_get_imported = MagicMock(side_effect=Exception("ResourceNotFound"))
 
         with patch.object(
             handlers.agent_configurations_table,
@@ -448,12 +469,12 @@ class TestResetFlow:
             return_value={"Items": model_items},
         ), patch.object(
             handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_bedrock_delete,
         ), patch.object(
             handlers.bedrock_client,
-            "get_custom_model_deployment",
-            mock_get_deployment,
+            "get_imported_model",
+            mock_get_imported,
         ), patch.object(
             handlers.agent_configurations_table,
             "delete_item",
