@@ -554,10 +554,14 @@ def handle_create_sub_agent(arguments: dict, event: dict) -> dict:
         return {"success": False, "statusCode": 500, "message": f"Failed to create sub-agent: {e}"}
 
     return {
-        "success": True,
-        "statusCode": 200,
         "agentId": agent_id,
-        "message": "Sub-agent created successfully",
+        "userId": user_id,
+        "name": name,
+        "systemPrompt": system_prompt,
+        "modelId": model_id,
+        "lambdaTools": lambda_tools,
+        "createdAt": now,
+        "updatedAt": now,
     }
 
 
