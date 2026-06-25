@@ -4,7 +4,7 @@ import boto3
 from typing import Dict, Any, Optional
 
 # Initialize Lambda client
-lambda_client = boto3.client('lambda', region_name='us-east-1')
+lambda_client = boto3.client('lambda')
 
 
 def extract_tool_call(response: str) -> Optional[Dict[str, Any]]:

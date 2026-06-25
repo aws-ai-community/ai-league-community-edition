@@ -660,7 +660,7 @@ export default function AgentBuilderPage() {
       <Header variant="h1">Agent Builder</Header>
 
       <Alert type="info" header="Model Costs">
-        Nova 2 Lite are covered by AWS credits if you have applied them to your account. Claude Haiku 4.5 is higher quality but is not typically covered by AWS credits.
+        Nova 2 Lite is covered by AWS credits if you have applied them to your account. Claude Haiku 4.5 is higher quality but is not typically covered by AWS credits.
       </Alert>
 
       <Flashbar items={flashItems} />

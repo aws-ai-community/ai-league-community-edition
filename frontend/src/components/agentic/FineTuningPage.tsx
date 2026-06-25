@@ -240,7 +240,7 @@ export default function FineTuningPage() {
       const response = await getStudioPresignedUrl();
       const url = response.GetStudioPresignedUrl.url;
       if (url) {
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
       } else {
         addFlash('error', response.GetStudioPresignedUrl.error || 'Failed to generate Studio URL');
       }
@@ -259,7 +259,7 @@ export default function FineTuningPage() {
       const url = response.GetTrainingArtifactUrl.url;
       // S3 presigned URL includes ResponseContentDisposition=attachment header
       // which forces the browser to download instead of displaying
-      window.location.href = url;
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (error) {
       console.error(`Failed to download artifact ${artifactKey}:`, error);
     } finally {
@@ -326,7 +326,7 @@ export default function FineTuningPage() {
 
       {/* Cost Warning */}
       <Alert type="warning" header="Cost Warning">
-        Fine-tuning models on SageMaker costs $80/hour.  These cost may be covered by AWS credits if they are applied to your account.
+        Fine-tuning models on SageMaker costs $80/hour. These costs may be covered by AWS credits if they are applied to your account.
       </Alert>
 
       {/* Workflow Overview */}

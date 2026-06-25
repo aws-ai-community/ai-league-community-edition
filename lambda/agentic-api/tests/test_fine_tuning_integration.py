@@ -118,10 +118,10 @@ class TestDeployFlow:
     Requirements: 4.1
     """
 
-    def test_deploy_registered_model_returns_deployed_with_deployment_arn(
+    def test_deploy_registered_model_returns_deploying_with_deployment_arn(
         self, handlers, mock_event
     ):
-        """Registered model + deploy → returns status 'Deployed' with deploymentArn."""
+        """Registered model + deploy → returns status 'Deploying' with deploymentArn."""
         model_id = str(uuid.uuid4())
         arguments = {"modelId": model_id}
 
@@ -157,7 +157,7 @@ class TestDeployFlow:
         ):
             result = handlers.handle_deploy_custom_model(arguments, mock_event)
 
-        assert result["status"] == "Deployed"
+        assert result["status"] == "Deploying"
         assert result["deploymentArn"] == deployment_arn
         assert result["modelId"] == model_id
         assert result["failureReason"] is None

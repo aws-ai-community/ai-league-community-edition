@@ -551,9 +551,9 @@ class TestStatusTransitionValidity:
         ):
             result = handle_deploy_custom_model(arguments, event)
 
-        # The handler should proceed with deployment (status becomes Deployed)
-        assert result["status"] == "Deployed", (
-            f"Expected status='Deployed' when deploying from '{current_status}', "
+        # The handler should proceed with deployment (status becomes Deploying)
+        assert result["status"] == "Deploying", (
+            f"Expected status='Deploying' when deploying from '{current_status}', "
             f"got '{result['status']}'"
         )
         assert result["modelId"] == model_id
@@ -741,8 +741,8 @@ class TestStatusTransitionValidity:
             result = handle_deploy_custom_model(arguments, event)
 
         # Retry should succeed - transitions Failed→Deploying→Deployed
-        assert result["status"] == "Deployed", (
-            f"Expected status='Deployed' on retry from 'Failed', got '{result['status']}'"
+        assert result["status"] == "Deploying", (
+            f"Expected status='Deploying' on retry from 'Failed', got '{result['status']}'"
         )
         assert result["failureReason"] is None, (
             f"Expected no failureReason after successful retry, got '{result['failureReason']}'"
@@ -762,7 +762,7 @@ class TestTokenPenaltyReductionSchedule:
     """Property 5: Token Penalty Reduction Schedule.
 
     For any custom model count C, the token penalty reduction SHALL be:
-    0% when C=0, 25% when C=1, 50% when C=2, 75% when C>=3.
+    0% when C=0, 50% when C=1, 70% when C=2, 85% when C=3, 92% when C=4, 95% when C>=5.
     The function SHALL be monotonically non-decreasing.
 
     Feature: fine-tuning, Property 5: Token Penalty Reduction Schedule

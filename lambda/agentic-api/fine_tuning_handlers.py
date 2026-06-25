@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -198,7 +199,7 @@ def handle_register_custom_model(arguments: dict, event: dict) -> dict:
         describe_response = sagemaker_client.describe_training_job(
             TrainingJobName=job_name
         )
-    except sagemaker_client.exceptions.ClientError as e:
+    except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code", "")
         if error_code == "ValidationException" or "ResourceNotFound" in str(e):
             logger.warning(
@@ -445,12 +446,12 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
             "updatedAt": item.get("updatedAt"),
         }
 
-    # Step 3: Update status to "Deploying"
+    # Step 3: Update status to "Deploying" and clear any previous failureReason
     now = _now_iso()
     try:
         agent_configurations_table.update_item(
             Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-            UpdateExpression="SET #status = :deploying, updatedAt = :now",
+            UpdateExpression="SET #status = :deploying, updatedAt = :now REMOVE failureReason",
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={":deploying": "Deploying", ":now": now},
         )
@@ -519,32 +520,31 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
             "updatedAt": failed_now,
         }
 
-    # Step 5: On success — store deploymentArn, update status to "Deployed"
+    # Step 5: On success — store deploymentArn, keep status as "Deploying"
+    # The status check handler (GetCustomModelStatus) will update to "Deployed" when Bedrock reports ACTIVE
     deployed_now = _now_iso()
     try:
         agent_configurations_table.update_item(
             Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-            UpdateExpression="SET #status = :deployed, deploymentArn = :arn, updatedAt = :now",
-            ExpressionAttributeNames={"#status": "status"},
+            UpdateExpression="SET deploymentArn = :arn, updatedAt = :now",
             ExpressionAttributeValues={
-                ":deployed": "Deployed",
                 ":arn": deployment_arn,
                 ":now": deployed_now,
             },
         )
     except Exception as e:
         logger.error(
-            "Error updating status to Deployed for user %s, modelId %s: %s",
+            "Error storing deploymentArn for user %s, modelId %s: %s",
             user_id, model_id, e
         )
-        # Return deployed status anyway since the Bedrock deployment succeeded
+        # Return Deploying status anyway since the Bedrock deployment was initiated
         return {
             "modelId": model_id,
             "userId": user_id,
             "name": item.get("name", ""),
             "trainingJobArn": training_job_arn,
             "deploymentArn": deployment_arn,
-            "status": "Deployed",
+            "status": "Deploying",
             "baseModelId": item.get("baseModelId"),
             "failureReason": None,
             "createdAt": item.get("createdAt"),
@@ -552,7 +552,7 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
         }
 
     logger.info(
-        "Custom model deployed: modelId=%s, user=%s, deploymentArn=%s",
+        "Custom model deployment initiated: modelId=%s, user=%s, deploymentArn=%s",
         model_id, user_id, deployment_arn
     )
     return {
@@ -561,7 +561,7 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
         "name": item.get("name", ""),
         "trainingJobArn": training_job_arn,
         "deploymentArn": deployment_arn,
-        "status": "Deployed",
+        "status": "Deploying",
         "baseModelId": item.get("baseModelId"),
         "failureReason": None,
         "createdAt": item.get("createdAt"),
@@ -792,7 +792,7 @@ def handle_delete_custom_model(arguments: dict, event: dict) -> dict:
             return {
                 "success": False,
                 "statusCode": 409,
-                "message": f"Model is currently in use by: {agent_names}. Remove it from agent configuration before undeploying.",
+                "message": f"Model is currently in use by: {agent_names}. Remove it from agent configuration before deleting.",
             }
 
     # Step 4: Delete DynamoDB record

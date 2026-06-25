@@ -556,7 +556,7 @@ def handler(event, context):
     const forceRuntimeUpdate = new cdk.CustomResource(this, 'ForceRuntimeUpdate', {
       serviceToken: forceRuntimeUpdateProvider.serviceToken,
       properties: {
-        RuntimeId: 'communityAgentRuntime',  // Will be resolved after creation
+        RuntimeId: agentRuntime.ref,  // Physical resource ID of the AgentCore Runtime
         ContainerUri: `${agentEcr.repositoryUri}:latest`,
         RoleArn: agentCoreRuntimeRole.roleArn,
         // Force update on every deploy by changing this value
@@ -726,13 +726,6 @@ def handler(event, context):
         'arn:aws:s3:::sagemaker-*/*',
       ],
     }));
-
-    // Default SageMaker bucket (required for training data, model artifacts, reward functions)
-    const sagemakerDefaultBucket = new s3.Bucket(this, 'SageMakerDefaultBucket', {
-      bucketName: `sagemaker-${this.region}-${this.account}`,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
-    });
 
     // SageMaker Domain
     const smDomain = new cdk.aws_sagemaker.CfnDomain(this, 'SageMakerDomain', {
@@ -1685,7 +1678,7 @@ def handler(event, context):
     });
 
     // Agentic Game Engine settings deployed as settings.json
-    const regionPrefix = this.region.startsWith('eu-') ? 'eu' : this.region.startsWith('ap-') ? 'ap' : 'us';
+    const regionPrefix = this.region.split('-')[0];
     const settingsAsset = s3deploy.Source.jsonData('settings.json', {
       graphql: { endpoint: agenticApi.graphqlUrl },
       graphqlApiKey: agenticApi.apiKey,
