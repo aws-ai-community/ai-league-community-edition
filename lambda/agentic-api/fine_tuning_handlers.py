@@ -654,41 +654,28 @@ def handle_get_custom_model_status(arguments: dict, event: dict) -> dict:
                 now = _now_iso()
 
                 if import_status in ("Completed", "COMPLETED"):
-                    # Import done — get the imported model ARN and deploy it
+                    # Import done — the imported model ARN IS the inference endpoint
+                    # No separate deployment step needed for imported models
                     imported_model_arn = import_response.get("importedModelArn", "")
                     logger.info(
                         "Import job complete for model %s, importedModelArn=%s",
                         model_id, imported_model_arn
                     )
 
-                    # Now create the deployment
-                    model_name = item.get("name", "").replace(" ", "-").lower()[:50] or f"model-{model_id[:8]}"
-                    try:
-                        deploy_resp = bedrock_client.create_custom_model_deployment(
-                            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}"[:63],
-                            modelArn=imported_model_arn,
-                        )
-                        new_deployment_arn = deploy_resp.get("customModelDeploymentArn", "")
-                        agent_configurations_table.update_item(
-                            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-                            UpdateExpression="SET deploymentArn = :arn, updatedAt = :now",
-                            ExpressionAttributeValues={":arn": new_deployment_arn, ":now": now},
-                        )
-                        item["deploymentArn"] = new_deployment_arn
-                        item["updatedAt"] = now
-                        logger.info("Deployment created: %s", new_deployment_arn)
-                    except Exception as e:
-                        # Deployment creation failed after import succeeded
-                        failure_reason = f"Model imported but deployment failed: {e}"
-                        agent_configurations_table.update_item(
-                            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-                            UpdateExpression="SET #status = :status, failureReason = :reason, updatedAt = :now",
-                            ExpressionAttributeNames={"#status": "status"},
-                            ExpressionAttributeValues={":status": "Failed", ":reason": failure_reason, ":now": now},
-                        )
-                        item["status"] = "Failed"
-                        item["failureReason"] = failure_reason
-                        item["updatedAt"] = now
+                    # Store the imported model ARN as deploymentArn and mark as Deployed
+                    agent_configurations_table.update_item(
+                        Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                        UpdateExpression="SET #status = :status, deploymentArn = :arn, updatedAt = :now",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={
+                            ":status": "Deployed",
+                            ":arn": imported_model_arn,
+                            ":now": now,
+                        },
+                    )
+                    item["status"] = "Deployed"
+                    item["deploymentArn"] = imported_model_arn
+                    item["updatedAt"] = now
 
                 elif import_status in ("Failed", "FAILED"):
                     failure_reason = import_response.get("failureMessage", "Model import failed")
@@ -707,7 +694,7 @@ def handle_get_custom_model_status(arguments: dict, event: dict) -> dict:
             except Exception as e:
                 logger.error("Error checking import job for model %s: %s", model_id, e)
 
-        # If we have a deployment ARN, check deployment status
+        # If we have a deployment ARN (imported model ARN), model is already deployed
         elif deployment_arn:
             try:
                 deployment_response = bedrock_client.get_custom_model_deployment(
@@ -1012,20 +999,20 @@ def handle_undeploy_custom_model(arguments: dict, event: dict) -> dict:
             "message": f"Model is currently in use by: {agent_names}. Remove it from agent configuration before undeploying.",
         }
 
-    # Step 4: Call Bedrock DeleteCustomModelDeployment with retry (3 attempts, exponential backoff)
+    # Step 4: Delete the imported model from Bedrock with retry (3 attempts, exponential backoff)
     delete_succeeded = False
     last_error = None
     for attempt in range(3):
         try:
-            bedrock_client.delete_custom_model_deployment(
-                customModelDeploymentIdentifier=deployment_arn
+            bedrock_client.delete_imported_model(
+                modelIdentifier=deployment_arn
             )
             delete_succeeded = True
             break
         except Exception as e:
             last_error = e
             logger.warning(
-                "Undeploy attempt %d failed for deployment %s: %s",
+                "Undeploy attempt %d failed for model %s: %s",
                 attempt + 1, deployment_arn, e
             )
             if attempt < 2:
@@ -1033,7 +1020,7 @@ def handle_undeploy_custom_model(arguments: dict, event: dict) -> dict:
 
     if not delete_succeeded:
         logger.error(
-            "Failed to delete Bedrock deployment %s after 3 attempts: %s",
+            "Failed to delete imported model %s after 3 attempts: %s",
             deployment_arn, last_error
         )
         return {
@@ -1042,32 +1029,13 @@ def handle_undeploy_custom_model(arguments: dict, event: dict) -> dict:
             "message": f"Failed to undeploy model after 3 attempts: {last_error}",
         }
 
-    # Step 5: Verify deletion
+    # Step 5: Verify deletion by checking if model still exists
     try:
-        verify_response = bedrock_client.get_custom_model_deployment(
-            customModelDeploymentIdentifier=deployment_arn
-        )
-        verify_status = verify_response.get("status", "")
-        if verify_status not in ("Deleting", "DELETING"):
-            logger.warning(
-                "Deployment %s still active with status '%s' after delete call",
-                deployment_arn, verify_status
-            )
-    except bedrock_client.exceptions.ResourceNotFoundException:
-        # ResourceNotFound means it's already gone — success
-        logger.info("Deployment %s confirmed deleted (ResourceNotFound)", deployment_arn)
-    except Exception as e:
-        # ValidationException or other errors — consider it successful
-        error_code = ""
-        if hasattr(e, "response"):
-            error_code = e.response.get("Error", {}).get("Code", "")
-        if error_code in ("ResourceNotFoundException", "ValidationException"):
-            logger.info("Deployment %s confirmed deleted (%s)", deployment_arn, error_code)
-        else:
-            logger.warning(
-                "Could not verify deletion of deployment %s: %s. Proceeding anyway.",
-                deployment_arn, e
-            )
+        bedrock_client.get_imported_model(modelIdentifier=deployment_arn)
+        logger.warning("Imported model %s still exists after delete call", deployment_arn)
+    except Exception:
+        # Any error (ResourceNotFound, ValidationException) = model is gone
+        logger.info("Imported model %s confirmed deleted", deployment_arn)
 
     # Step 6: Update DynamoDB: clear deploymentArn, set status to "Registered"
     now = _now_iso()
@@ -1294,8 +1262,8 @@ def handle_reset_custom_models(user_id: str) -> list:
             delete_succeeded = False
             for attempt in range(3):
                 try:
-                    bedrock_client.delete_custom_model_deployment(
-                        customModelDeploymentIdentifier=deployment_arn
+                    bedrock_client.delete_imported_model(
+                        modelIdentifier=deployment_arn
                     )
                     delete_succeeded = True
                     break
@@ -1310,36 +1278,17 @@ def handle_reset_custom_models(user_id: str) -> list:
             if delete_succeeded:
                 # Verify deletion
                 try:
-                    verify_response = bedrock_client.get_custom_model_deployment(
-                        customModelDeploymentIdentifier=deployment_arn
+                    bedrock_client.get_imported_model(modelIdentifier=deployment_arn)
+                    # If this succeeds, model still exists
+                    logger.warning(
+                        "Reset: Imported model %s still exists after delete", deployment_arn
                     )
-                    verify_status = verify_response.get("status", "")
-                    if verify_status in ("Deleting", "DELETING"):
-                        logger.info(
-                            "Reset: Deployment %s is deleting (confirmed)", deployment_arn
-                        )
-                    else:
-                        logger.warning(
-                            "Reset: Deployment %s still active with status '%s' after delete",
-                            deployment_arn, verify_status
-                        )
-                        failures.append(f"{model_name} ({deployment_arn})")
+                    failures.append(f"{model_name} ({deployment_arn})")
                 except Exception as e:
-                    # ResourceNotFoundException or ValidationException = deleted
-                    error_code = ""
-                    if hasattr(e, "response"):
-                        error_code = e.response.get("Error", {}).get("Code", "")
-                    if error_code in ("ResourceNotFoundException", "ValidationException"):
-                        logger.info(
-                            "Reset: Deployment %s confirmed deleted (%s)",
-                            deployment_arn, error_code
-                        )
-                    else:
-                        # Other errors — assume deleted
-                        logger.info(
-                            "Reset: Deployment %s likely deleted (verify error: %s)",
-                            deployment_arn, e
-                        )
+                    # Any error = model is gone (ResourceNotFound, ValidationException, etc.)
+                    logger.info(
+                        "Reset: Imported model %s confirmed deleted", deployment_arn
+                    )
             else:
                 failures.append(f"{model_name} ({deployment_arn})")
 

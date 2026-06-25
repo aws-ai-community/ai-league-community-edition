@@ -655,6 +655,7 @@ def handler(event, context):
       assumedBy: new iam.CompositePrincipal(
         new iam.ServicePrincipal('sagemaker.amazonaws.com'),
         new iam.ServicePrincipal('lambda.amazonaws.com'),
+        new iam.ServicePrincipal('bedrock.amazonaws.com'),
       ),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerFullAccess'),
@@ -941,6 +942,7 @@ def handler(event, context):
         'bedrock:CreateModelImportJob',
         'bedrock:GetModelImportJob',
         'bedrock:GetImportedModel',
+        'bedrock:DeleteImportedModel',
         'bedrock:ListImportedModels',
         'bedrock:CreateCustomModelDeployment',
         'bedrock:GetCustomModelDeployment',
