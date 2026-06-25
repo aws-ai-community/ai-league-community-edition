@@ -251,16 +251,33 @@ class BedrockImportedModel(Model):
         logger.info(f"BedrockImportedModel invoking: model={self.model_id}, messages={len(formatted_messages)}")
         logger.debug(f"Request payload: {json.dumps(payload, default=str)[:500]}")
 
-        try:
-            response = self.client.invoke_model_with_response_stream(
-                modelId=self.model_id,
-                body=json.dumps(payload),
-                accept="application/json",
-                contentType="application/json",
-            )
-        except Exception as e:
-            logger.error(f"BedrockImportedModel invocation failed: {e}")
-            raise
+        # Retry with exponential backoff for ModelNotReadyException (cold start)
+        import time
+
+        max_retries = 6
+        response = None
+        for attempt in range(max_retries):
+            try:
+                response = self.client.invoke_model_with_response_stream(
+                    modelId=self.model_id,
+                    body=json.dumps(payload),
+                    accept="application/json",
+                    contentType="application/json",
+                )
+                break
+            except self.client.exceptions.ModelNotReadyException as e:
+                wait_time = min(10 * (2 ** attempt), 120)  # 10s, 20s, 40s, 80s, 120s, 120s
+                logger.warning(
+                    f"ModelNotReadyException (attempt {attempt + 1}/{max_retries}), "
+                    f"waiting {wait_time}s for model to warm up..."
+                )
+                if attempt == max_retries - 1:
+                    logger.error(f"BedrockImportedModel failed after {max_retries} retries: {e}")
+                    raise
+                time.sleep(wait_time)
+            except Exception as e:
+                logger.error(f"BedrockImportedModel invocation failed: {e}")
+                raise
 
         # Collect streaming response
         full_content = ""
