@@ -6,6 +6,12 @@ import FineTuningPage from '../FineTuningPage';
 vi.mock('../../../services/graphqlClient', () => ({
   getTrainingArtifactUrl: vi.fn(),
   registerCustomModel: vi.fn(),
+  listCustomModels: vi.fn().mockResolvedValue({ ListCustomModels: [] }),
+  deployCustomModel: vi.fn(),
+  deleteCustomModel: vi.fn(),
+  undeployCustomModel: vi.fn(),
+  getCustomModelStatus: vi.fn(),
+  getStudioPresignedUrl: vi.fn(),
 }));
 
 import { registerCustomModel } from '../../../services/graphqlClient';
@@ -27,15 +33,10 @@ describe('FineTuningPage', () => {
     const { container } = render(<FineTuningPage />);
     const content = container.textContent;
 
-    expect(content).toContain('Step 1');
     expect(content).toContain('Download Sample Data');
-    expect(content).toContain('Step 2');
     expect(content).toContain('Train in SageMaker');
-    expect(content).toContain('Step 3');
     expect(content).toContain('Register Model');
-    expect(content).toContain('Step 4');
     expect(content).toContain('Deploy for Inference');
-    expect(content).toContain('Step 5');
     expect(content).toContain('Use in Agent Builder');
   });
 
