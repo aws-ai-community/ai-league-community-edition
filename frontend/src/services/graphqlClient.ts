@@ -1032,3 +1032,54 @@ export async function generateChallenge(tileType: string, grid?: string[][]): Pr
   `;
   return graphqlRequest<{ GenerateChallenge: GenerateChallengeResponse }>(query, { tileType, grid: grid || null }, true);
 }
+
+// --- Model Warm-Up Types and Helpers ---
+
+export interface WarmUpModelStatus {
+  modelArn: string;
+  status: string;
+  error?: string | null;
+}
+
+export interface WarmUpSessionResponse {
+  sessionId: string;
+  status: string;
+  models?: WarmUpModelStatus[];
+  message?: string | null;
+}
+
+export async function warmUpModels(modelArns: string[]): Promise<{ WarmUpModels: WarmUpSessionResponse }> {
+  const query = `
+    mutation WarmUpModels($modelArns: [String!]!) {
+      WarmUpModels(modelArns: $modelArns) {
+        sessionId
+        status
+        models {
+          modelArn
+          status
+          error
+        }
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ WarmUpModels: WarmUpSessionResponse }>(query, { modelArns }, true);
+}
+
+export async function getWarmUpStatus(sessionId: string): Promise<{ WarmUpStatus: WarmUpSessionResponse }> {
+  const query = `
+    query WarmUpStatus($sessionId: String!) {
+      WarmUpStatus(sessionId: $sessionId) {
+        sessionId
+        status
+        models {
+          modelArn
+          status
+          error
+        }
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ WarmUpStatus: WarmUpSessionResponse }>(query, { sessionId }, true);
+}

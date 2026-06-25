@@ -188,6 +188,21 @@ type GenerateChallengeResponse @aws_cognito_user_pools {
   pairedTileType: String
 }
 
+# Model Warm-Up Types
+
+type WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools {
+  sessionId: String!
+  status: String!
+  models: [WarmUpModelStatus!]
+  message: String
+}
+
+type WarmUpModelStatus @aws_api_key @aws_cognito_user_pools {
+  modelArn: String!
+  status: String!
+  error: String
+}
+
 # Fine-Tuning Types
 
 type CustomModel @aws_cognito_user_pools {
@@ -236,6 +251,8 @@ type Query {
   GetCustomModelStatus(modelId: String!): CustomModel @aws_cognito_user_pools
   GetTrainingArtifactUrl(artifactKey: String!): TrainingArtifactUrlResponse @aws_cognito_user_pools
   GetStudioPresignedUrl: StudioPresignedUrlResponse @aws_cognito_user_pools
+  # Model Warm-Up Queries
+  WarmUpStatus(sessionId: String!): WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools
 }
 
 type Mutation {
@@ -264,6 +281,8 @@ type Mutation {
   DeployCustomModel(modelId: String!): CustomModel @aws_cognito_user_pools
   UndeployCustomModel(modelId: String!): MutationResponse @aws_cognito_user_pools
   DeleteCustomModel(modelId: String!, force: Boolean): MutationResponse @aws_cognito_user_pools
+  # Model Warm-Up Mutations
+  WarmUpModels(modelArns: [String!]!): WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools
 }
 
 schema {
