@@ -12,6 +12,8 @@ The solution only runs in **us-east-1**
 | Per game attempt | $0.25–$1/game | Varies depending on token usage (Nova Lite 2) |
 | Fine-tuning a model | ~$30/model | Varies by configuration; service rate is $80/hour. Set a hardstop in hyperparameters to control cost |
 
+See [estimated-costs.md](estimated-costs.md) for a detailed breakdown by service.
+
 ## Features
 
 ### Core Platform
@@ -314,10 +316,6 @@ CDK_DEFAULT_REGION=<region> npx cdk destroy
 ```
 
 This removes all deployed resources including the Cognito User Pool, DynamoDB tables, and all user data.
-
-## Roadmap
-
-- **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
 ## License
 
