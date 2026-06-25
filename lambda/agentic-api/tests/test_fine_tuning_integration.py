@@ -211,13 +211,12 @@ class TestDeleteFlow:
     Requirements: 5.1
     """
 
-    def test_delete_deployed_model_calls_bedrock_delete_and_dynamo_delete(
+    def test_delete_registered_model_removes_dynamo_record(
         self, handlers, mock_event
     ):
-        """Deployed model + delete → calls Bedrock delete + DynamoDB delete."""
+        """Registered model (no deployment) + delete → removes DynamoDB record only."""
         model_id = str(uuid.uuid4())
-        deployment_arn = "arn:aws:bedrock:us-east-1:123456789012:custom-model-deployment/deploy-123"
-        arguments = {"modelId": model_id, "force": True}
+        arguments = {"modelId": model_id}
 
         existing_item = {
             "userId": "user-abc-123",
@@ -225,21 +224,16 @@ class TestDeleteFlow:
             "modelId": model_id,
             "name": "My Model",
             "trainingJobArn": "arn:aws:sagemaker:us-east-1:123456789012:training-job/my-job",
-            "status": "Deployed",
-            "deploymentArn": deployment_arn,
+            "status": "Registered",
+            "deploymentArn": None,
         }
 
-        mock_bedrock_delete = MagicMock(return_value={})
         mock_dynamo_delete = MagicMock(return_value={})
 
         with patch.object(
             handlers.agent_configurations_table,
             "get_item",
             return_value={"Item": existing_item},
-        ), patch.object(
-            handlers.bedrock_client,
-            "delete_custom_model_deployment",
-            mock_bedrock_delete,
         ), patch.object(
             handlers.agent_configurations_table,
             "delete_item",
@@ -249,22 +243,17 @@ class TestDeleteFlow:
 
         assert result["success"] is True
         assert result["statusCode"] == 200
-
-        # Verify Bedrock delete was called with the deployment ARN
-        mock_bedrock_delete.assert_called_once_with(
-            customModelDeploymentIdentifier=deployment_arn
-        )
 
         # Verify DynamoDB delete was called
         mock_dynamo_delete.assert_called_once_with(
             Key={"userId": "user-abc-123", "sk": f"CUSTOMMODEL#{model_id}"}
         )
 
-    def test_delete_with_usage_warning_returns_409(self, handlers, mock_event):
-        """Model in use + delete without force → returns 409 with usage info."""
+    def test_delete_deployed_model_returns_400(self, handlers, mock_event):
+        """Deployed model + delete → returns 400 blocking deletion."""
         model_id = str(uuid.uuid4())
         deployment_arn = "arn:aws:bedrock:us-east-1:123456789012:custom-model-deployment/deploy-123"
-        arguments = {"modelId": model_id, "force": False}
+        arguments = {"modelId": model_id}
 
         existing_item = {
             "userId": "user-abc-123",
@@ -275,52 +264,22 @@ class TestDeleteFlow:
             "status": "Deployed",
             "deploymentArn": deployment_arn,
         }
-
-        # Supervisor uses this deployment ARN as its modelId
-        supervisor_item = {
-            "userId": "user-abc-123",
-            "sk": "SUPERVISOR",
-            "name": "Main Supervisor",
-            "modelId": deployment_arn,
-        }
-
-        # Sub-agents also use it
-        subagent_items = [
-            {
-                "userId": "user-abc-123",
-                "sk": "SUBAGENT#sub1",
-                "name": "Research Agent",
-                "modelId": deployment_arn,
-            }
-        ]
-
-        def mock_get_item(Key):
-            if Key["sk"] == f"CUSTOMMODEL#{model_id}":
-                return {"Item": existing_item}
-            elif Key["sk"] == "SUPERVISOR":
-                return {"Item": supervisor_item}
-            return {"Item": None}
 
         with patch.object(
             handlers.agent_configurations_table,
             "get_item",
-            side_effect=mock_get_item,
-        ), patch.object(
-            handlers.agent_configurations_table,
-            "query",
-            return_value={"Items": subagent_items},
+            return_value={"Item": existing_item},
         ):
             result = handlers.handle_delete_custom_model(arguments, mock_event)
 
         assert result["success"] is False
-        assert result["statusCode"] == 409
-        assert "in use" in result["message"].lower() or "Model is currently in use" in result["message"]
+        assert result["statusCode"] == 400
+        assert result["message"] == "Cannot delete a deployed model. Undeploy it first."
 
-    def test_force_delete_model_in_use_deletes_anyway(self, handlers, mock_event):
-        """Model in use + force=true → deletes anyway."""
+    def test_delete_registered_model_with_no_deployment_succeeds(self, handlers, mock_event):
+        """Registered model (no deploymentArn) + delete → DynamoDB record removed, no Bedrock call."""
         model_id = str(uuid.uuid4())
-        deployment_arn = "arn:aws:bedrock:us-east-1:123456789012:custom-model-deployment/deploy-123"
-        arguments = {"modelId": model_id, "force": True}
+        arguments = {"modelId": model_id}
 
         existing_item = {
             "userId": "user-abc-123",
@@ -328,8 +287,8 @@ class TestDeleteFlow:
             "modelId": model_id,
             "name": "My Model",
             "trainingJobArn": "arn:aws:sagemaker:us-east-1:123456789012:training-job/my-job",
-            "status": "Deployed",
-            "deploymentArn": deployment_arn,
+            "status": "Registered",
+            "deploymentArn": None,
         }
 
         mock_bedrock_delete = MagicMock(return_value={})
@@ -350,11 +309,17 @@ class TestDeleteFlow:
         ):
             result = handlers.handle_delete_custom_model(arguments, mock_event)
 
-        # Force delete succeeds regardless of usage
+        # Delete succeeds
         assert result["success"] is True
         assert result["statusCode"] == 200
-        mock_bedrock_delete.assert_called_once()
-        mock_dynamo_delete.assert_called_once()
+
+        # No Bedrock call made (no deployment to delete)
+        mock_bedrock_delete.assert_not_called()
+
+        # DynamoDB record removed
+        mock_dynamo_delete.assert_called_once_with(
+            Key={"userId": "user-abc-123", "sk": f"CUSTOMMODEL#{model_id}"}
+        )
 
 
 class TestResetFlow:
@@ -399,6 +364,7 @@ class TestResetFlow:
 
         mock_bedrock_delete = MagicMock(return_value={})
         mock_dynamo_delete = MagicMock(return_value={})
+        mock_get_deployment = MagicMock(side_effect=Exception("ResourceNotFound"))
 
         with patch.object(
             handlers.agent_configurations_table,
@@ -409,10 +375,14 @@ class TestResetFlow:
             "delete_custom_model_deployment",
             mock_bedrock_delete,
         ), patch.object(
+            handlers.bedrock_client,
+            "get_custom_model_deployment",
+            mock_get_deployment,
+        ), patch.object(
             handlers.agent_configurations_table,
             "delete_item",
             mock_dynamo_delete,
-        ):
+        ), patch("fine_tuning_handlers.time.sleep"):
             handlers.handle_reset_custom_models(user_id)
 
         # Verify Bedrock delete was called for both deployed models (not for the Registered one)
@@ -460,11 +430,17 @@ class TestResetFlow:
             },
         ]
 
-        # First Bedrock delete fails, second succeeds
+        # First Bedrock delete fails all 3 retries, second succeeds on first try
         mock_bedrock_delete = MagicMock(
-            side_effect=[Exception("Bedrock error for model-1"), None]
+            side_effect=[
+                Exception("Bedrock error for model-1"),
+                Exception("Bedrock error for model-1"),
+                Exception("Bedrock error for model-1"),
+                None,
+            ]
         )
         mock_dynamo_delete = MagicMock(return_value={})
+        mock_get_deployment = MagicMock(side_effect=Exception("ResourceNotFound"))
 
         with patch.object(
             handlers.agent_configurations_table,
@@ -475,15 +451,19 @@ class TestResetFlow:
             "delete_custom_model_deployment",
             mock_bedrock_delete,
         ), patch.object(
+            handlers.bedrock_client,
+            "get_custom_model_deployment",
+            mock_get_deployment,
+        ), patch.object(
             handlers.agent_configurations_table,
             "delete_item",
             mock_dynamo_delete,
-        ):
+        ), patch("fine_tuning_handlers.time.sleep"):
             # Should not raise — continues on failure
             handlers.handle_reset_custom_models(user_id)
 
-        # Both Bedrock deletes were attempted
-        assert mock_bedrock_delete.call_count == 2
+        # All Bedrock delete attempts were made (3 retries for model-1 + 1 for model-2)
+        assert mock_bedrock_delete.call_count == 4
 
         # Both DynamoDB deletes were still attempted (best-effort continues)
         assert mock_dynamo_delete.call_count == 2

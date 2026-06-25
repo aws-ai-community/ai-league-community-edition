@@ -42,7 +42,7 @@ class TestHandleGetTrainingArtifactUrl:
             assert result == {"url": "https://s3.example.com/presigned", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-training.jsonl"},
+                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-training.jsonl", "ResponseContentDisposition": 'attachment; filename="tool-call-training.jsonl"'},
                 ExpiresIn=3600,
             )
 
@@ -56,7 +56,7 @@ class TestHandleGetTrainingArtifactUrl:
             assert result == {"url": "https://s3.example.com/eval", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-eval.jsonl"},
+                Params={"Bucket": "test-bucket", "Key": "samples/tool-call-eval.jsonl", "ResponseContentDisposition": 'attachment; filename="tool-call-eval.jsonl"'},
                 ExpiresIn=3600,
             )
 
@@ -70,7 +70,7 @@ class TestHandleGetTrainingArtifactUrl:
             assert result == {"url": "https://s3.example.com/reward", "expiresIn": 3600}
             mock_s3.generate_presigned_url.assert_called_once_with(
                 "get_object",
-                Params={"Bucket": "test-bucket", "Key": "samples/reward-function-tool-call.py"},
+                Params={"Bucket": "test-bucket", "Key": "samples/reward-function-tool-call.py", "ResponseContentDisposition": 'attachment; filename="reward-function-tool-call.py"'},
                 ExpiresIn=3600,
             )
 

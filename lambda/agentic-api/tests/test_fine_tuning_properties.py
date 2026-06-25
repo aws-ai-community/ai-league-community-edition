@@ -1275,7 +1275,11 @@ class TestResetCleanupCompleteness:
             fine_tuning_handlers.bedrock_client,
             "delete_custom_model_deployment",
             mock_delete_deployment,
-        ):
+        ), patch.object(
+            fine_tuning_handlers.bedrock_client,
+            "get_custom_model_deployment",
+            side_effect=Exception("ResourceNotFoundException"),
+        ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
             handle_reset_custom_models(user_id)
 
@@ -1332,7 +1336,11 @@ class TestResetCleanupCompleteness:
             fine_tuning_handlers.bedrock_client,
             "delete_custom_model_deployment",
             mock_delete_deployment,
-        ):
+        ), patch.object(
+            fine_tuning_handlers.bedrock_client,
+            "get_custom_model_deployment",
+            side_effect=Exception("ResourceNotFoundException"),
+        ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
             handle_reset_custom_models(user_id)
 
@@ -1375,7 +1383,11 @@ class TestResetCleanupCompleteness:
             fine_tuning_handlers.bedrock_client,
             "delete_custom_model_deployment",
             mock_delete_deployment,
-        ):
+        ), patch.object(
+            fine_tuning_handlers.bedrock_client,
+            "get_custom_model_deployment",
+            side_effect=Exception("ResourceNotFoundException"),
+        ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
             handle_reset_custom_models(user_id)
 
@@ -1416,7 +1428,11 @@ class TestResetCleanupCompleteness:
             fine_tuning_handlers.bedrock_client,
             "delete_custom_model_deployment",
             mock_delete_deployment,
-        ):
+        ), patch.object(
+            fine_tuning_handlers.bedrock_client,
+            "get_custom_model_deployment",
+            side_effect=Exception("ResourceNotFoundException"),
+        ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
             handle_reset_custom_models(user_id)
 
