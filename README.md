@@ -2,6 +2,18 @@
 
 A full-stack web application for AWS AI League participants to practice and collaborate outside of official AWS events. Built with CloudScape Design System, AWS CDK, Amazon Cognito, AppSync GraphQL, and a serverless backend.
 
+## Limitations
+
+The solution only runs in **us-east-1**
+
+## Costs
+
+| Item | Cost | Notes |
+|------|------|-------|
+| Monthly infrastructure | ~$2/month | Solution running in your account |
+| Per game attempt | $0.25–$1/game | Varies depending on token usage (Nova Lite 2) |
+| Fine-tuning a model | ~$30/model | Varies by configuration; service rate is $80/hour. Set a hardstop in hyperparameters to control cost |
+
 ## Features
 
 ### Core Platform
