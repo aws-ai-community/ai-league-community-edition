@@ -81,10 +81,11 @@ Once trained, the custom model needs to be deployed to be used for inference.
 
 | Resource | Cost | Notes |
 |----------|------|-------|
-| Bedrock Custom Model Deployment (on-demand) | Token-based | Same pricing model as base Bedrock models. For a small model like Qwen 3 0.6B, expect similar rates to Nova Lite (~$0.06/1M input, $0.24/1M output tokens). Only charged when processing inference requests — no idle cost |
-| Per game with deployed custom model | ~$0.15–$0.40 | Similar to Nova Lite 2 since the model is small (0.6B parameters) |
+| Bedrock Custom Model Deployment (on-demand) | Token-based | Per the [AWS docs](https://docs.aws.amazon.com/bedrock/latest/userguide/deploy-custom-model-on-demand.html): "you only pay for what you use and you don't need to set up provisioned compute resources." No idle hosting cost |
+| Custom model storage | Small monthly fee | The fine-tuned model weights are stored in Bedrock. For a 0.6B model this is minimal (~1-2 GB) |
+| Per game with deployed custom model | ~$0.15–$0.40 | Similar to Nova Lite 2 since the model is small (0.6B parameters). Pricing is per-token, same as base model |
 
-> **Key point**: On-demand custom model deployments have **no idle cost** — you only pay for tokens processed during inference. This means you can leave a model deployed without incurring charges when it's not being used for games.
+> **Key point**: On-demand custom model deployments have **no idle hosting cost** — you only pay for tokens processed during inference. The only ongoing cost is model storage (minimal for a 0.6B model). Refer to the [Amazon Bedrock pricing page](https://aws.amazon.com/bedrock/pricing/) for current rates.
 
 ### SageMaker Code Editor (IDE)
 
@@ -105,11 +106,12 @@ The Code Editor is used for editing Lambda tool code. It runs on an ml.t3.medium
 ## Cost Optimisation Tips
 
 1. **Stop the SageMaker Code Editor** when not actively editing Lambda tools — it auto-stops after 4 hours idle, but you can stop it manually to save ~$0.05/hour
-2. **Custom model deployments have no idle cost** — on-demand deployments only charge per token, so you can leave them deployed safely
+2. **Custom model deployments have no idle hosting cost** — on-demand deployments only charge per token processed. There is a small model storage cost
 3. **Use Nova Lite 2** as your default model — it's the cheapest and covered by AWS credits
 4. **Set training hard stops** via `max_runtime_in_seconds` hyperparameter to prevent runaway training costs
-5. **Use "Reset Configuration"** to clean up all deployed models when done experimenting
-6. **Run `cdk destroy`** when you're finished with the solution entirely — all resources including Bedrock deployments are automatically cleaned up
+5. **Delete unused custom models** if you no longer need them to avoid storage costs
+6. **Use "Reset Configuration"** to clean up all deployed models when done experimenting
+7. **Run `cdk destroy`** when you're finished with the solution entirely — all resources including Bedrock deployments are automatically cleaned up
 
 ---
 
