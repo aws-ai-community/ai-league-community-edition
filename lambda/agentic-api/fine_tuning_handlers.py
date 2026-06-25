@@ -487,6 +487,11 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
         if not role_arn:
             raise ValueError("Training job has no RoleArn")
 
+        # The merged HuggingFace model is in checkpoints/hf_merged/ under the output path
+        if not model_s3_uri.endswith("/"):
+            model_s3_uri += "/"
+        model_s3_uri = f"{model_s3_uri}checkpoints/hf_merged/"
+
         logger.info(
             "Deploy: Got model artifacts for %s: s3=%s, role=%s",
             model_id, model_s3_uri, role_arn
