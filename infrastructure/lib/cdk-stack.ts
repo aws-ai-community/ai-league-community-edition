@@ -727,6 +727,54 @@ def handler(event, context):
       ],
     }));
 
+    // Ensure the default SageMaker bucket exists (required for training data, model artifacts, reward functions)
+    // Uses a custom resource to create it only if it doesn't already exist (avoids CDK conflicts on re-deploy)
+    const ensureSagemakerBucketFn = new lambda.Function(this, 'EnsureSagemakerBucketFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(30),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+
+def handler(event, context):
+    try:
+        if event['RequestType'] in ['Create', 'Update']:
+            bucket_name = event['ResourceProperties']['BucketName']
+            region = event['ResourceProperties']['Region']
+            s3 = boto3.client('s3', region_name=region)
+            try:
+                s3.head_bucket(Bucket=bucket_name)
+            except s3.exceptions.ClientError as e:
+                error_code = int(e.response['Error']['Code'])
+                if error_code == 404:
+                    if region == 'us-east-1':
+                        s3.create_bucket(Bucket=bucket_name)
+                    else:
+                        s3.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={'LocationConstraint': region})
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+    ensureSagemakerBucketFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:CreateBucket', 's3:HeadBucket'],
+      resources: ['*'],
+    }));
+
+    const ensureBucketProvider = new cr.Provider(this, 'EnsureSagemakerBucketProvider', {
+      onEventHandler: ensureSagemakerBucketFn,
+    });
+
+    new cdk.CustomResource(this, 'EnsureSagemakerBucket', {
+      serviceToken: ensureBucketProvider.serviceToken,
+      properties: {
+        BucketName: `sagemaker-${this.region}-${this.account}`,
+        Region: this.region,
+      },
+    });
+
     // SageMaker Domain
     const smDomain = new cdk.aws_sagemaker.CfnDomain(this, 'SageMakerDomain', {
       domainName: 'ai-league-practice',
