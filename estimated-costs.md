@@ -77,15 +77,15 @@ Cost breakdown for training a custom model via SageMaker RLVR.
 
 ### Deployment costs (after training)
 
-Once trained, the custom model needs to be deployed to be used for inference.
+Once trained, the custom model is imported into Bedrock and available for inference.
 
 | Resource | Cost | Notes |
 |----------|------|-------|
-| Bedrock Custom Model Deployment (on-demand) | Token-based | Per the [AWS docs](https://docs.aws.amazon.com/bedrock/latest/userguide/deploy-custom-model-on-demand.html): "you only pay for what you use and you don't need to set up provisioned compute resources." No idle hosting cost |
-| Custom model storage | Small monthly fee | The fine-tuned model weights are stored in Bedrock. For a 0.6B model this is minimal (~1-2 GB) |
-| Per game with deployed custom model | ~$0.15–$0.40 | Similar to Nova Lite 2 since the model is small (0.6B parameters). Pricing is per-token, same as base model |
+| Bedrock Imported Model (CMU-based) | Per-5-minute billing windows | Uses Custom Model Units (CMU). Charged in 5-min windows only when inference is active. A 0.6B model uses minimal CMUs. Scales to zero when not in use |
+| Custom model storage | Small monthly fee | The imported model weights are stored in Bedrock. For a 0.6B model (~1.2 GB) this is minimal |
+| Per game with imported custom model | ~$0.10–$0.30 | CMU billing per 5-min window during active inference. A single game takes seconds, so one 5-min window per session |
 
-> **Key point**: On-demand custom model deployments have **no idle hosting cost** — you only pay for tokens processed during inference. The only ongoing cost is model storage (minimal for a 0.6B model). Refer to the [Amazon Bedrock pricing page](https://aws.amazon.com/bedrock/pricing/) for current rates.
+> **Key point**: Imported models use CMU-based billing with 5-minute granularity. If you play one game, you're charged for one 5-min window. If you don't invoke the model, there's no compute charge (only storage). Refer to the [Amazon Bedrock pricing page](https://aws.amazon.com/bedrock/pricing/) for current CMU rates.
 
 ### SageMaker Code Editor (IDE)
 
@@ -106,12 +106,12 @@ The Code Editor is used for editing Lambda tool code. It runs on an ml.t3.medium
 ## Cost Optimisation Tips
 
 1. **Stop the SageMaker Code Editor** when not actively editing Lambda tools — it auto-stops after 4 hours idle, but you can stop it manually to save ~$0.05/hour
-2. **Custom model deployments have no idle hosting cost** — on-demand deployments only charge per token processed. There is a small model storage cost
+2. **Imported models have no idle compute cost** — CMU billing only activates during inference (5-min windows). Storage cost is minimal
 3. **Use Nova Lite 2** as your default model — it's the cheapest and covered by AWS credits
 4. **Set training hard stops** via `max_runtime_in_seconds` hyperparameter to prevent runaway training costs
 5. **Delete unused custom models** if you no longer need them to avoid storage costs
-6. **Use "Reset Configuration"** to clean up all deployed models when done experimenting
-7. **Run `cdk destroy`** when you're finished with the solution entirely — all resources including Bedrock deployments are automatically cleaned up
+6. **Use "Reset Configuration"** to clean up all imported models when done experimenting
+7. **Run `cdk destroy`** when you're finished with the solution entirely — all resources including imported models are automatically cleaned up
 
 ---
 

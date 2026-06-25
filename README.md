@@ -101,7 +101,7 @@ See [estimated-costs.md](estimated-costs.md) for a detailed breakdown by service
   - ARN validation (client-side + server-side regex)
   - SageMaker DescribeTrainingJob verification (must be Completed)
   - Duplicate detection per user
-- **Model Deployment** — Deploy registered models via Bedrock Custom Model Deployments
+- **Model Deployment** — Deploy registered models via Bedrock Custom Model Import
   - Status tracking: Registered → Deploying → Deployed (or Failed)
   - Auto-polling for deployment status every 10 seconds
   - Deployed models appear in Agent Builder model dropdowns
@@ -133,7 +133,7 @@ Browser → CloudFront → S3 (static assets + settings.json + aws-exports.json)
                      → API Gateway /api/* → Lambda (Node.js) → DynamoDB (Maps, Profiles)
                      → AppSync GraphQL → Lambda (Python) → DynamoDB (GameSessions, Leaderboard, Submissions, AgentConfigurations)
                                                          → Amazon Bedrock (LLM invocations)
-                                                         → Amazon Bedrock (Custom Model Deployments - fine-tuning)
+                                                         → Amazon Bedrock (Custom Model Import - fine-tuning)
                                                          → SageMaker (DescribeTrainingJob - ARN validation)
                                                          → S3 (pre-signed URLs for sample training artifacts)
                                                          → Game Runner Lambda (async, 10-min timeout)
