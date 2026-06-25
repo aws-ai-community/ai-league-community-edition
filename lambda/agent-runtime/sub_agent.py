@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List
 from strands import Agent, tool
 from strands.models import BedrockModel
-from agent_utils import create_streamable_http_transport, create_sagemaker_model, DEFAULT_MODEL_ID
+from agent_utils import create_streamable_http_transport, create_sagemaker_model, create_imported_model, is_imported_model, DEFAULT_MODEL_ID
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp.mcp_client import MCPClient
 
@@ -72,6 +72,9 @@ def create_sub_agent(agent_id: str, gateway_url: str, model_id: str = None, syst
             model = create_sagemaker_model(
                 agent_model_id, role_arn=sagemaker_invoke_role_arn,
             )
+        elif is_imported_model(agent_model_id):
+            logger.info(f"Sub-agent {agent_id} using Bedrock imported model: {agent_model_id}")
+            model = create_imported_model(agent_model_id, stream=False)
         else:
             logger.info(f"Sub-agent {agent_id} using Bedrock model: {agent_model_id}")
             model = BedrockModel(
