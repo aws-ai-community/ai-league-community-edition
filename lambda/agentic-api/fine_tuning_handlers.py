@@ -517,23 +517,24 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
             "createdAt": item.get("createdAt"), "updatedAt": failed_now,
         }
 
-    # Step 5: Import model into Bedrock as a custom model
+    # Step 5: Import model into Bedrock via model import job (async)
     bedrock_model_name = f"ft-{model_id[:8]}-{model_name}"[:63]
     try:
-        import_response = bedrock_client.create_custom_model(
-            modelName=bedrock_model_name,
-            modelSourceConfig={
+        import_response = bedrock_client.create_model_import_job(
+            jobName=f"import-{model_id[:8]}-{model_name}"[:63],
+            importedModelName=bedrock_model_name,
+            roleArn=role_arn,
+            modelDataSource={
                 "s3DataSource": {"s3Uri": model_s3_uri}
             },
-            roleArn=role_arn,
         )
-        bedrock_model_arn = import_response.get("modelArn", "")
+        import_job_arn = import_response.get("jobArn", "")
         logger.info(
-            "Deploy: Imported model into Bedrock: modelArn=%s for modelId=%s",
-            bedrock_model_arn, model_id
+            "Deploy: Started model import job: jobArn=%s for modelId=%s",
+            import_job_arn, model_id
         )
     except Exception as e:
-        failure_reason = f"Failed to import model into Bedrock: {e}"
+        failure_reason = f"Failed to start model import: {e}"
         logger.error("Deploy: %s for user %s, modelId %s", failure_reason, user_id, model_id)
         failed_now = _now_iso()
         try:
@@ -553,91 +554,35 @@ def handle_deploy_custom_model(arguments: dict, event: dict) -> dict:
             "createdAt": item.get("createdAt"), "updatedAt": failed_now,
         }
 
-    # Step 6: Deploy the Bedrock custom model for on-demand inference
-    try:
-        deploy_response = bedrock_client.create_custom_model_deployment(
-            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}"[:63],
-            modelArn=bedrock_model_arn,
-        )
-        deployment_arn = deploy_response.get("customModelDeploymentArn", "")
-    except Exception as e:
-        failure_reason = f"Model imported but deployment failed: {e}"
-        logger.error(
-            "Bedrock CreateCustomModelDeployment failed for user %s, modelId %s: %s",
-            user_id, model_id, failure_reason
-        )
-        failed_now = _now_iso()
-        try:
-            agent_configurations_table.update_item(
-                Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-                UpdateExpression="SET #status = :failed, failureReason = :reason, updatedAt = :now",
-                ExpressionAttributeNames={"#status": "status"},
-                ExpressionAttributeValues={
-                    ":failed": "Failed",
-                    ":reason": failure_reason,
-                    ":now": failed_now,
-                },
-            )
-        except Exception as update_err:
-            logger.error(
-                "Failed to update status to Failed for user %s, modelId %s: %s",
-                user_id, model_id, update_err
-            )
-
-        return {
-            "modelId": model_id,
-            "userId": user_id,
-            "name": item.get("name", ""),
-            "trainingJobArn": training_job_arn,
-            "deploymentArn": None,
-            "status": "Failed",
-            "baseModelId": item.get("baseModelId"),
-            "failureReason": failure_reason,
-            "createdAt": item.get("createdAt"),
-            "updatedAt": failed_now,
-        }
-
-    # Step 5: On success — store deploymentArn, keep status as "Deploying"
-    # The status check handler (GetCustomModelStatus) will update to "Deployed" when Bedrock reports ACTIVE
+    # Step 6: Store import job ARN in DynamoDB, keep status as "Deploying"
+    # The status check handler will monitor the import job, and once complete,
+    # it will create the deployment and update status
     deployed_now = _now_iso()
     try:
         agent_configurations_table.update_item(
             Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
-            UpdateExpression="SET deploymentArn = :arn, updatedAt = :now",
+            UpdateExpression="SET importJobArn = :jobArn, updatedAt = :now",
             ExpressionAttributeValues={
-                ":arn": deployment_arn,
+                ":jobArn": import_job_arn,
                 ":now": deployed_now,
             },
         )
     except Exception as e:
         logger.error(
-            "Error storing deploymentArn for user %s, modelId %s: %s",
+            "Error storing importJobArn for user %s, modelId %s: %s",
             user_id, model_id, e
         )
-        # Return Deploying status anyway since the Bedrock deployment was initiated
-        return {
-            "modelId": model_id,
-            "userId": user_id,
-            "name": item.get("name", ""),
-            "trainingJobArn": training_job_arn,
-            "deploymentArn": deployment_arn,
-            "status": "Deploying",
-            "baseModelId": item.get("baseModelId"),
-            "failureReason": None,
-            "createdAt": item.get("createdAt"),
-            "updatedAt": deployed_now,
-        }
 
     logger.info(
-        "Custom model deployment initiated: modelId=%s, user=%s, deploymentArn=%s",
-        model_id, user_id, deployment_arn
+        "Custom model import initiated: modelId=%s, user=%s, importJobArn=%s",
+        model_id, user_id, import_job_arn
     )
     return {
         "modelId": model_id,
         "userId": user_id,
         "name": item.get("name", ""),
         "trainingJobArn": training_job_arn,
-        "deploymentArn": deployment_arn,
+        "deploymentArn": None,
         "status": "Deploying",
         "baseModelId": item.get("baseModelId"),
         "failureReason": None,
@@ -694,10 +639,76 @@ def handle_get_custom_model_status(arguments: dict, event: dict) -> dict:
         )
         return None
 
-    # Step 3: If status is "Deploying", check Bedrock deployment state
+    # Step 3: If status is "Deploying", check import job or deployment state
     if item.get("status") == "Deploying":
+        import_job_arn = item.get("importJobArn")
         deployment_arn = item.get("deploymentArn")
-        if deployment_arn:
+
+        # If we have an import job but no deployment yet, check import status
+        if import_job_arn and not deployment_arn:
+            try:
+                import_response = bedrock_client.get_model_import_job(
+                    jobIdentifier=import_job_arn
+                )
+                import_status = import_response.get("status", "")
+                now = _now_iso()
+
+                if import_status in ("Completed", "COMPLETED"):
+                    # Import done — get the imported model ARN and deploy it
+                    imported_model_arn = import_response.get("importedModelArn", "")
+                    logger.info(
+                        "Import job complete for model %s, importedModelArn=%s",
+                        model_id, imported_model_arn
+                    )
+
+                    # Now create the deployment
+                    model_name = item.get("name", "").replace(" ", "-").lower()[:50] or f"model-{model_id[:8]}"
+                    try:
+                        deploy_resp = bedrock_client.create_custom_model_deployment(
+                            modelDeploymentName=f"deploy-{model_id[:8]}-{model_name}"[:63],
+                            modelArn=imported_model_arn,
+                        )
+                        new_deployment_arn = deploy_resp.get("customModelDeploymentArn", "")
+                        agent_configurations_table.update_item(
+                            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                            UpdateExpression="SET deploymentArn = :arn, updatedAt = :now",
+                            ExpressionAttributeValues={":arn": new_deployment_arn, ":now": now},
+                        )
+                        item["deploymentArn"] = new_deployment_arn
+                        item["updatedAt"] = now
+                        logger.info("Deployment created: %s", new_deployment_arn)
+                    except Exception as e:
+                        # Deployment creation failed after import succeeded
+                        failure_reason = f"Model imported but deployment failed: {e}"
+                        agent_configurations_table.update_item(
+                            Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                            UpdateExpression="SET #status = :status, failureReason = :reason, updatedAt = :now",
+                            ExpressionAttributeNames={"#status": "status"},
+                            ExpressionAttributeValues={":status": "Failed", ":reason": failure_reason, ":now": now},
+                        )
+                        item["status"] = "Failed"
+                        item["failureReason"] = failure_reason
+                        item["updatedAt"] = now
+
+                elif import_status in ("Failed", "FAILED"):
+                    failure_reason = import_response.get("failureMessage", "Model import failed")
+                    agent_configurations_table.update_item(
+                        Key={"userId": user_id, "sk": f"CUSTOMMODEL#{model_id}"},
+                        UpdateExpression="SET #status = :status, failureReason = :reason, updatedAt = :now",
+                        ExpressionAttributeNames={"#status": "status"},
+                        ExpressionAttributeValues={":status": "Failed", ":reason": failure_reason, ":now": now},
+                    )
+                    item["status"] = "Failed"
+                    item["failureReason"] = failure_reason
+                    item["updatedAt"] = now
+
+                # Otherwise (InProgress, Creating) — leave as Deploying
+
+            except Exception as e:
+                logger.error("Error checking import job for model %s: %s", model_id, e)
+
+        # If we have a deployment ARN, check deployment status
+        elif deployment_arn:
             try:
                 deployment_response = bedrock_client.get_custom_model_deployment(
                     customModelDeploymentIdentifier=deployment_arn
