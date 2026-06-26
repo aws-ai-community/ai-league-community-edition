@@ -155,7 +155,7 @@ def handle_warm_up_models(arguments: dict, event: dict) -> dict:
     Requirements: 2.1, 2.4, 2.6, 3.1, 3.3
     """
     model_arns = arguments.get("modelArns", [])
-    user_id = event.get("identity", {}).get("sub", "anonymous")
+    user_id = (event.get("identity") or {}).get("sub", "anonymous")
 
     # Generate a unique session ID
     session_id = str(uuid.uuid4())
@@ -434,7 +434,7 @@ def handle_warm_up_status(arguments: dict, event: dict) -> dict:
     Requirements: 3.2, 3.4
     """
     session_id = arguments.get("sessionId", "")
-    user_id = event.get("identity", {}).get("sub", "anonymous")
+    user_id = (event.get("identity") or {}).get("sub", "anonymous")
 
     try:
         response = _get_table().get_item(
