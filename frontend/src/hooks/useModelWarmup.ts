@@ -30,6 +30,7 @@ export function useModelWarmup() {
   }, []);
 
   const startWarmup = useCallback(async (modelArns: string[]) => {
+    stopPolling();
     if (modelArns.length === 0) {
       setState({ ...initialState, phase: 'skipped' });
       return;

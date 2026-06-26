@@ -747,8 +747,8 @@ def handler(event, context):
             try:
                 s3.head_bucket(Bucket=bucket_name)
             except s3.exceptions.ClientError as e:
-                error_code = int(e.response['Error']['Code'])
-                if error_code == 404:
+                error_code = str(e.response.get('Error', {}).get('Code', ''))
+                if error_code in ('404', 'NoSuchBucket', 'NotFound'):
                     if region == 'us-east-1':
                         s3.create_bucket(Bucket=bucket_name)
                     else:

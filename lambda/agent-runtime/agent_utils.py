@@ -86,7 +86,7 @@ def is_imported_model(model_id: str) -> bool:
     Imported model ARNs follow the pattern:
     arn:aws:bedrock:<region>:<account>:imported-model/<id>
     """
-    return "imported-model/" in model_id
+    return "imported-model/" in (model_id or "")
 
 
 def create_imported_model(model_id: str, stream: bool = True):
