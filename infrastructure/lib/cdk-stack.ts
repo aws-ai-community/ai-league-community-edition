@@ -493,6 +493,79 @@ def handler(event, context):
     });
     agentRuntime.addDependency(triggerBuild.node.defaultChild as cdk.CfnResource);
 
+    // Force AgentCore Runtime to redeploy with the latest container image after each build
+    const forceRuntimeUpdateFn = new lambda.Function(this, 'ForceRuntimeUpdateFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(5),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+import time
+
+def handler(event, context):
+    try:
+        if event['RequestType'] in ['Create', 'Update']:
+            props = event['ResourceProperties']
+            client = boto3.client('bedrock-agentcore-control')
+            runtime_id = props['RuntimeId']
+            container_uri = props['ContainerUri']
+            role_arn = props['RoleArn']
+
+            try:
+                client.update_agent_runtime(
+                    agentRuntimeId=runtime_id,
+                    agentRuntimeArtifact={'containerConfiguration': {'containerUri': container_uri}},
+                    roleArn=role_arn,
+                    networkConfiguration={'networkMode': 'PUBLIC'},
+                )
+                # Wait for runtime to become READY (up to 3 minutes)
+                for _ in range(18):
+                    time.sleep(10)
+                    resp = client.list_agent_runtimes()
+                    for rt in resp.get('agentRuntimes', []):
+                        if rt['agentRuntimeId'] == runtime_id:
+                            if rt['status'] == 'READY':
+                                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'READY'})
+                                return
+                            break
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'TIMEOUT'})
+            except Exception as e:
+                print(f'Update failed: {e}')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': str(e)})
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Error': str(e)})
+`),
+    });
+    forceRuntimeUpdateFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock-agentcore-control:UpdateAgentRuntime', 'bedrock-agentcore-control:ListAgentRuntimes'],
+      resources: ['*'],
+    }));
+    forceRuntimeUpdateFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [agentCoreRuntimeRole.roleArn],
+    }));
+
+    const forceRuntimeUpdateProvider = new cr.Provider(this, 'ForceRuntimeUpdateProvider', {
+      onEventHandler: forceRuntimeUpdateFn,
+    });
+
+    const forceRuntimeUpdate = new cdk.CustomResource(this, 'ForceRuntimeUpdate', {
+      serviceToken: forceRuntimeUpdateProvider.serviceToken,
+      properties: {
+        RuntimeId: agentRuntime.ref,  // Physical resource ID of the AgentCore Runtime
+        ContainerUri: `${agentEcr.repositoryUri}:latest`,
+        RoleArn: agentCoreRuntimeRole.roleArn,
+        // Force update on every deploy by changing this value
+        BuildTimestamp: Date.now().toString(),
+      },
+    });
+    forceRuntimeUpdate.node.addDependency(triggerBuild);
+    forceRuntimeUpdate.node.addDependency(agentRuntime);
+
     // Pass the runtime role ARN to the agentic Lambda
     agenticLambda.addEnvironment('AGENTCORE_RUNTIME_ROLE_ARN', agentCoreRuntimeRole.roleArn);
 
@@ -579,7 +652,11 @@ def handler(event, context):
 
     // SageMaker execution role
     const smExecRole = new iam.Role(this, 'SageMakerExecRole', {
-      assumedBy: new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+      assumedBy: new iam.CompositePrincipal(
+        new iam.ServicePrincipal('sagemaker.amazonaws.com'),
+        new iam.ServicePrincipal('lambda.amazonaws.com'),
+        new iam.ServicePrincipal('bedrock.amazonaws.com'),
+      ),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSageMakerFullAccess'),
       ],
@@ -588,6 +665,116 @@ def handler(event, context):
       actions: ['lambda:UpdateFunctionCode', 'lambda:GetFunction', 'lambda:InvokeFunction'],
       resources: [`arn:aws:lambda:*:*:function:AgentCoreGatewayTool-*`],
     }));
+    // Lambda permissions for reward functions (fine-tuning evaluators)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'lambda:CreateFunction',
+        'lambda:UpdateFunctionCode',
+        'lambda:GetFunction',
+        'lambda:InvokeFunction',
+        'lambda:DeleteFunction',
+        'lambda:GetFunctionConfiguration',
+        'lambda:AddPermission',
+        'lambda:RemovePermission',
+        'lambda:GetLayerVersion',
+      ],
+      resources: ['*'],
+    }));
+    // Allow SageMaker to pass its own role (needed for training jobs and reward functions)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [smExecRole.roleArn],
+    }));
+    // Bedrock permissions for fine-tuning (model customization)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'bedrock:CreateModelCustomizationJob',
+        'bedrock:GetModelCustomizationJob',
+        'bedrock:StopModelCustomizationJob',
+        'bedrock:ListModelCustomizationJobs',
+        'bedrock:CreateProvisionedModelThroughput',
+        'bedrock:GetProvisionedModelThroughput',
+        'bedrock:GetCustomModel',
+        'bedrock:ListCustomModels',
+        'bedrock:GetFoundationModel',
+        'bedrock:ListFoundationModels',
+        'bedrock:TagResource',
+        'bedrock:UntagResource',
+      ],
+      resources: ['*'],
+    }));
+    // Allow loading customization recipes from SageMaker HubContent (required for fine-tuning)
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'sagemaker:DescribeHubContent',
+        'sagemaker:ListHubContents',
+        'sagemaker:ListHubContentVersions',
+        'sagemaker:DescribeHub',
+        'sagemaker:ListHubs',
+      ],
+      resources: ['*'],
+    }));
+    // S3 access for JumpStart model artifacts and customization recipes
+    smExecRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        's3:GetObject',
+        's3:ListBucket',
+      ],
+      resources: [
+        'arn:aws:s3:::jumpstart-cache-prod-*',
+        'arn:aws:s3:::jumpstart-cache-prod-*/*',
+        'arn:aws:s3:::sagemaker-*',
+        'arn:aws:s3:::sagemaker-*/*',
+      ],
+    }));
+
+    // Ensure the default SageMaker bucket exists (required for training data, model artifacts, reward functions)
+    // Uses a custom resource to create it only if it doesn't already exist (avoids CDK conflicts on re-deploy)
+    const ensureSagemakerBucketFn = new lambda.Function(this, 'EnsureSagemakerBucketFunction', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(30),
+      code: lambda.Code.fromInline(`
+import boto3
+import cfnresponse
+
+def handler(event, context):
+    try:
+        if event['RequestType'] in ['Create', 'Update']:
+            bucket_name = event['ResourceProperties']['BucketName']
+            region = event['ResourceProperties']['Region']
+            s3 = boto3.client('s3', region_name=region)
+            try:
+                s3.head_bucket(Bucket=bucket_name)
+            except s3.exceptions.ClientError as e:
+                error_code = str(e.response.get('Error', {}).get('Code', ''))
+                if error_code in ('404', 'NoSuchBucket', 'NotFound'):
+                    if region == 'us-east-1':
+                        s3.create_bucket(Bucket=bucket_name)
+                    else:
+                        s3.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={'LocationConstraint': region})
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+    ensureSagemakerBucketFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['s3:CreateBucket', 's3:HeadBucket'],
+      resources: ['*'],
+    }));
+
+    const ensureBucketProvider = new cr.Provider(this, 'EnsureSagemakerBucketProvider', {
+      onEventHandler: ensureSagemakerBucketFn,
+    });
+
+    new cdk.CustomResource(this, 'EnsureSagemakerBucket', {
+      serviceToken: ensureBucketProvider.serviceToken,
+      properties: {
+        BucketName: `sagemaker-${this.region}-${this.account}`,
+        Region: this.region,
+      },
+    });
 
     // SageMaker Domain
     const smDomain = new cdk.aws_sagemaker.CfnDomain(this, 'SageMakerDomain', {
@@ -647,11 +834,29 @@ def handler(event, context):
         elif event['RequestType'] == 'Delete':
             domain_id = event['ResourceProperties']['DomainId']
             space_name = event['ResourceProperties']['SpaceName']
+            # First stop/delete any running apps
             try:
                 sm.delete_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
+                # Wait for app to be deleted
+                for _ in range(30):
+                    try:
+                        sm.describe_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
+                        time.sleep(10)
+                    except:
+                        break
             except: pass
+            # Then delete the space and wait for it
             try:
                 sm.delete_space(DomainId=domain_id, SpaceName=space_name)
+                for _ in range(30):
+                    try:
+                        resp = sm.describe_space(DomainId=domain_id, SpaceName=space_name)
+                        if resp.get('Status') == 'Deleting':
+                            time.sleep(10)
+                        else:
+                            break
+                    except:
+                        break
             except: pass
             cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
         else:
@@ -698,6 +903,182 @@ def handler(event, context):
       ],
       resources: ['*'],
     }));
+
+    // ========================================================================
+    // S3 Training Artifacts Bucket (Fine-Tuning Feature)
+    // ========================================================================
+
+    // S3 bucket for training artifacts (sample data for fine-tuning)
+    const trainingArtifactsBucket = new s3.Bucket(this, 'TrainingArtifactsBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        { expiration: cdk.Duration.days(365) },
+      ],
+    });
+
+    // Deploy sample training artifacts to S3
+    new s3deploy.BucketDeployment(this, 'DeployTrainingArtifacts', {
+      sources: [s3deploy.Source.asset(path.join(__dirname, '../../sample-training-artifacts'))],
+      destinationBucket: trainingArtifactsBucket,
+      destinationKeyPrefix: 'samples',
+    });
+
+    // Export training artifacts bucket name to the agentic-api Lambda
+    agenticLambda.addEnvironment('TRAINING_ARTIFACTS_BUCKET', trainingArtifactsBucket.bucketName);
+
+    // Grant Lambda read access to generate pre-signed URLs for sample artifacts
+    trainingArtifactsBucket.grantRead(agenticLambda);
+
+    // Grant Lambda permissions for Bedrock Custom Model Deployment operations (Fine-Tuning)
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:CreateCustomModel',
+        'bedrock:GetCustomModel',
+        'bedrock:DeleteCustomModel',
+        'bedrock:ListCustomModels',
+        'bedrock:CreateModelImportJob',
+        'bedrock:GetModelImportJob',
+        'bedrock:GetImportedModel',
+        'bedrock:DeleteImportedModel',
+        'bedrock:ListImportedModels',
+        'bedrock:CreateCustomModelDeployment',
+        'bedrock:GetCustomModelDeployment',
+        'bedrock:DeleteCustomModelDeployment',
+        'bedrock:ListCustomModelDeployments',
+      ],
+      resources: ['*'],
+    }));
+
+    // Grant Lambda permissions for SageMaker DescribeTrainingJob (Fine-Tuning ARN validation)
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sagemaker:DescribeTrainingJob'],
+      resources: [`arn:aws:sagemaker:${this.region}:${this.account}:training-job/*`],
+    }));
+
+    // Grant Lambda permission to pass SageMaker role to Bedrock for model import
+    agenticLambda.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['iam:PassRole'],
+      resources: [smExecRole.roleArn],
+      conditions: {
+        StringEquals: {
+          'iam:PassedToService': 'bedrock.amazonaws.com',
+        },
+      },
+    }));
+
+    // ========================================================================
+    // Custom Resource: Cleanup Custom Model Deployments on Stack Destroy
+    // ========================================================================
+
+    const cleanupCustomModelsFn = new lambda.Function(this, 'CleanupCustomModelDeployments', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'index.handler',
+      timeout: cdk.Duration.minutes(10),
+      code: lambda.Code.fromInline(`
+import time
+import boto3
+import cfnresponse
+
+def handler(event, context):
+    """On Delete: scan for all CUSTOMMODEL# records, delete Bedrock deployments and DynamoDB records."""
+    try:
+        if event['RequestType'] == 'Delete':
+            table_name = event['ResourceProperties']['TableName']
+            dynamodb = boto3.resource('dynamodb')
+            table = dynamodb.Table(table_name)
+            bedrock = boto3.client('bedrock')
+
+            # Scan for all CUSTOMMODEL# records across all users
+            items = []
+            scan_kwargs = {
+                'FilterExpression': 'begins_with(sk, :prefix)',
+                'ExpressionAttributeValues': {':prefix': 'CUSTOMMODEL#'}
+            }
+            while True:
+                resp = table.scan(**scan_kwargs)
+                items.extend(resp.get('Items', []))
+                if 'LastEvaluatedKey' not in resp:
+                    break
+                scan_kwargs['ExclusiveStartKey'] = resp['LastEvaluatedKey']
+
+            failures = []
+            # Delete each Bedrock deployment with retry+verify pattern
+            for item in items:
+                deployment_arn = item.get('deploymentArn')
+                if deployment_arn:
+                    delete_succeeded = False
+                    for attempt in range(3):
+                        try:
+                            bedrock.delete_custom_model_deployment(
+                                customModelDeploymentIdentifier=deployment_arn)
+                            delete_succeeded = True
+                            break
+                        except Exception as e:
+                            print(f'Attempt {attempt+1} failed to delete deployment {deployment_arn}: {e}')
+                            if attempt < 2:
+                                time.sleep(2 ** attempt)
+                    if delete_succeeded:
+                        # Verify deletion
+                        try:
+                            verify_resp = bedrock.get_custom_model_deployment(
+                                customModelDeploymentIdentifier=deployment_arn)
+                            status = verify_resp.get('status', '')
+                            if status not in ('Deleting', 'DELETING'):
+                                failures.append(deployment_arn)
+                        except Exception:
+                            pass  # ResourceNotFound or ValidationException = deleted
+                    else:
+                        failures.append(deployment_arn)
+
+                # Delete DynamoDB record regardless
+                try:
+                    table.delete_item(Key={'userId': item['userId'], 'sk': item['sk']})
+                    print(f'Deleted record: {item["userId"]}/{item["sk"]}')
+                except Exception as e:
+                    print(f'Warning: failed to delete record {item.get("userId")}/{item.get("sk")}: {e}')
+
+            if failures:
+                print(f'WARNING: Failed to undeploy: {failures}. Manual cleanup needed.')
+
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+    except Exception as e:
+        print(f'Error during custom model cleanup: {e}')
+        cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+`),
+    });
+
+    // Grant cleanup Lambda permissions to scan and delete from AgentConfigurations table
+    cleanupCustomModelsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['dynamodb:Scan', 'dynamodb:DeleteItem'],
+      resources: [agentConfigurationsTable.tableArn],
+    }));
+
+    // Grant cleanup Lambda permissions for Bedrock Custom Model Deployment operations
+    cleanupCustomModelsFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:DeleteCustomModelDeployment', 'bedrock:GetCustomModelDeployment', 'bedrock:ListCustomModelDeployments'],
+      resources: ['*'],
+    }));
+
+    const cleanupCustomModelsProvider = new cr.Provider(this, 'CleanupCustomModelsProvider', {
+      onEventHandler: cleanupCustomModelsFn,
+    });
+
+    const cleanupCustomModelsResource = new cdk.CustomResource(this, 'CustomModelCleanup', {
+      serviceToken: cleanupCustomModelsProvider.serviceToken,
+      properties: {
+        TableName: agentConfigurationsTable.tableName,
+        // Force update on each deploy so the cleanup always has fresh table reference
+        Timestamp: Date.now().toString(),
+      },
+    });
+
+    // Ensure cleanup runs before DynamoDB table deletion on stack destroy
+    cleanupCustomModelsResource.node.addDependency(agentConfigurationsTable);
 
     // ========================================================================
     // EventBridge, CloudTrail, Schema Generator & Auto-Shutdown Lambdas
@@ -1089,6 +1470,52 @@ def handler(event, context):
       fieldName: 'GenerateChallenge',
     });
 
+    // Fine-Tuning Query resolvers
+    agenticDataSource.createResolver('ListCustomModelsResolver', {
+      typeName: 'Query',
+      fieldName: 'ListCustomModels',
+    });
+    agenticDataSource.createResolver('GetCustomModelStatusResolver', {
+      typeName: 'Query',
+      fieldName: 'GetCustomModelStatus',
+    });
+    agenticDataSource.createResolver('GetTrainingArtifactUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetTrainingArtifactUrl',
+    });
+    agenticDataSource.createResolver('GetStudioPresignedUrlResolver', {
+      typeName: 'Query',
+      fieldName: 'GetStudioPresignedUrl',
+    });
+
+    // Fine-Tuning Mutation resolvers
+    agenticDataSource.createResolver('RegisterCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'RegisterCustomModel',
+    });
+    agenticDataSource.createResolver('DeployCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeployCustomModel',
+    });
+    agenticDataSource.createResolver('UndeployCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'UndeployCustomModel',
+    });
+    agenticDataSource.createResolver('DeleteCustomModelResolver', {
+      typeName: 'Mutation',
+      fieldName: 'DeleteCustomModel',
+    });
+
+    // Model Warm-Up resolvers
+    agenticDataSource.createResolver('WarmUpModelsResolver', {
+      typeName: 'Mutation',
+      fieldName: 'WarmUpModels',
+    });
+    agenticDataSource.createResolver('WarmUpStatusResolver', {
+      typeName: 'Query',
+      fieldName: 'WarmUpStatus',
+    });
+
     // Profile API Lambda function (TypeScript bundled with esbuild)
     const profileLambda = new lambdaNodejs.NodejsFunction(this, 'ProfileApiLambda', {
       functionName: 'ai-league-community-profile-api',
@@ -1331,9 +1758,12 @@ def handler(event, context):
     });
 
     // Agentic Game Engine settings deployed as settings.json
+    const regionPrefix = this.region.split('-')[0];
     const settingsAsset = s3deploy.Source.jsonData('settings.json', {
       graphql: { endpoint: agenticApi.graphqlUrl },
       graphqlApiKey: agenticApi.apiKey,
+      sagemakerStudioUrl: `https://studio-${smDomain.attrDomainId}.studio.${this.region}.sagemaker.aws/models/SageMakerPublicHub/Model/huggingface-reasoning-qwen3-06b`,
+      defaultModelId: `${regionPrefix}.amazon.nova-2-lite-v1:0`,
       auth: {
         cognito: {
           userPoolId: this.userPool.userPoolId,

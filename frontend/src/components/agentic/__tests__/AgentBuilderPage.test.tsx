@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import AgentBuilderPage from '../AgentBuilderPage';
 
+vi.mock('../../../services/settingsLoader', () => ({
+  loadSettings: vi.fn().mockResolvedValue({
+    graphql: { endpoint: 'https://test.appsync-api.aws/graphql' },
+    graphqlApiKey: 'test-key',
+    sagemakerStudioUrl: 'https://studio-test.sagemaker.aws',
+    defaultModelId: 'us.amazon.nova-2-lite-v1:0',
+  }),
+}));
+
 vi.mock('../../../services/graphqlClient', () => ({
   getSupervisorAgent: vi.fn(),
   updateSupervisorAgent: vi.fn(),
@@ -10,6 +19,7 @@ vi.mock('../../../services/graphqlClient', () => ({
   listMemoryTools: vi.fn(),
   listGuardrailTools: vi.fn(),
   listAgentVersions: vi.fn(),
+  listCustomModels: vi.fn(),
   createSubAgent: vi.fn(),
   updateSubAgent: vi.fn(),
   deleteSubAgent: vi.fn(),
@@ -29,7 +39,9 @@ import {
   listMemoryTools,
   listGuardrailTools,
   listAgentVersions,
+  listCustomModels,
 } from '../../../services/graphqlClient';
+import { loadSettings } from '../../../services/settingsLoader';
 
 const mockGetSupervisorAgent = vi.mocked(getSupervisorAgent);
 const mockUpdateSupervisorAgent = vi.mocked(updateSupervisorAgent);
@@ -38,10 +50,18 @@ const mockListLambdaTools = vi.mocked(listLambdaTools);
 const mockListMemoryTools = vi.mocked(listMemoryTools);
 const mockListGuardrailTools = vi.mocked(listGuardrailTools);
 const mockListAgentVersions = vi.mocked(listAgentVersions);
+const mockListCustomModels = vi.mocked(listCustomModels);
+const mockLoadSettings = vi.mocked(loadSettings);
 
 describe('AgentBuilderPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLoadSettings.mockResolvedValue({
+      graphql: { endpoint: 'https://test.appsync-api.aws/graphql' },
+      graphqlApiKey: 'test-key',
+      sagemakerStudioUrl: 'https://studio-test.sagemaker.aws',
+      defaultModelId: 'us.amazon.nova-2-lite-v1:0',
+    });
     mockGetSupervisorAgent.mockResolvedValue({
       GetSupervisorAgent: {
         name: 'My Agent',
@@ -82,6 +102,9 @@ describe('AgentBuilderPage', () => {
     });
     mockListAgentVersions.mockResolvedValue({
       ListAgentVersions: [],
+    });
+    mockListCustomModels.mockResolvedValue({
+      ListCustomModels: [],
     });
     mockUpdateSupervisorAgent.mockResolvedValue({
       UpdateSupervisorAgent: {

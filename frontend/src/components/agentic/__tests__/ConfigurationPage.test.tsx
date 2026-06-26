@@ -2,20 +2,48 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ConfigurationPage from '../ConfigurationPage';
 
+// Mock the settingsLoader module
+vi.mock('../../../services/settingsLoader', () => ({
+  loadSettings: vi.fn().mockResolvedValue({
+    graphql: { endpoint: 'https://test.appsync-api.aws/graphql' },
+    graphqlApiKey: 'test-key',
+    sagemakerStudioUrl: 'https://studio-test.sagemaker.aws',
+    defaultModelId: 'us.amazon.nova-2-lite-v1:0',
+  }),
+}));
+
 // Mock the graphqlClient module
 vi.mock('../../../services/graphqlClient', () => ({
   getLlmConfiguration: vi.fn(),
   saveLlmConfiguration: vi.fn(),
+  getCodeEditorStatus: vi.fn().mockResolvedValue({ GetCodeEditorStatus: { status: 'Stopped', message: null } }),
+  startCodeEditor: vi.fn(),
+  stopCodeEditor: vi.fn(),
+  getSchemaModelConfig: vi.fn().mockResolvedValue({ GetSchemaModelConfig: { modelId: 'us.amazon.nova-2-lite-v1:0' } }),
+  saveSchemaModelConfig: vi.fn(),
+  resetConfiguration: vi.fn(),
 }));
 
-import { getLlmConfiguration, saveLlmConfiguration } from '../../../services/graphqlClient';
+import { getLlmConfiguration, saveLlmConfiguration, getCodeEditorStatus, getSchemaModelConfig } from '../../../services/graphqlClient';
+import { loadSettings } from '../../../services/settingsLoader';
 
 const mockGetLlmConfiguration = vi.mocked(getLlmConfiguration);
 const mockSaveLlmConfiguration = vi.mocked(saveLlmConfiguration);
+const mockGetCodeEditorStatus = vi.mocked(getCodeEditorStatus);
+const mockGetSchemaModelConfig = vi.mocked(getSchemaModelConfig);
+const mockLoadSettings = vi.mocked(loadSettings);
 
 describe('ConfigurationPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLoadSettings.mockResolvedValue({
+      graphql: { endpoint: 'https://test.appsync-api.aws/graphql' },
+      graphqlApiKey: 'test-key',
+      sagemakerStudioUrl: 'https://studio-test.sagemaker.aws',
+      defaultModelId: 'us.amazon.nova-2-lite-v1:0',
+    });
+    mockGetCodeEditorStatus.mockResolvedValue({ GetCodeEditorStatus: { status: 'Stopped', message: null } });
+    mockGetSchemaModelConfig.mockResolvedValue({ GetSchemaModelConfig: { modelId: 'us.amazon.nova-2-lite-v1:0' } });
     mockGetLlmConfiguration.mockResolvedValue({
       GetLlmConfiguration: {
         defaultModel: 'us.amazon.nova-2-lite-v1:0',

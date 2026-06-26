@@ -188,6 +188,46 @@ type GenerateChallengeResponse @aws_cognito_user_pools {
   pairedTileType: String
 }
 
+# Model Warm-Up Types
+
+type WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools {
+  sessionId: String!
+  status: String!
+  models: [WarmUpModelStatus!]
+  message: String
+}
+
+type WarmUpModelStatus @aws_api_key @aws_cognito_user_pools {
+  modelArn: String!
+  status: String!
+  error: String
+}
+
+# Fine-Tuning Types
+
+type CustomModel @aws_cognito_user_pools {
+  modelId: String!
+  userId: String
+  name: String!
+  trainingJobArn: String!
+  deploymentArn: String
+  status: String!
+  baseModelId: String
+  failureReason: String
+  createdAt: AWSDateTime
+  updatedAt: AWSDateTime
+}
+
+type TrainingArtifactUrlResponse @aws_cognito_user_pools {
+  url: String!
+  expiresIn: Int!
+}
+
+type StudioPresignedUrlResponse @aws_cognito_user_pools {
+  url: String!
+  error: String
+}
+
 type Query {
   GetMap(mapId: String!): MapResponse @aws_api_key @aws_cognito_user_pools
   GetGameSession(sessionId: String!): GameSessionResponse @aws_api_key @aws_cognito_user_pools
@@ -206,6 +246,13 @@ type Query {
   GetCodeEditorStatus: CodeEditorStatusResponse @aws_cognito_user_pools
   GetSchemaModelConfig: SchemaModelConfigResponse @aws_cognito_user_pools
   GetPresignedDomainUrl: PresignedUrlResponse @aws_cognito_user_pools
+  # Fine-Tuning Queries
+  ListCustomModels: [CustomModel!]! @aws_cognito_user_pools
+  GetCustomModelStatus(modelId: String!): CustomModel @aws_cognito_user_pools
+  GetTrainingArtifactUrl(artifactKey: String!): TrainingArtifactUrlResponse @aws_cognito_user_pools
+  GetStudioPresignedUrl: StudioPresignedUrlResponse @aws_cognito_user_pools
+  # Model Warm-Up Queries
+  WarmUpStatus(sessionId: String!): WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools
 }
 
 type Mutation {
@@ -229,6 +276,13 @@ type Mutation {
   DeleteGuardrail(toolId: String!): MutationResponse @aws_cognito_user_pools
   CreateModel(name: String!, resourceIdentifier: String!, type: String!, pathfindingPromptStrategy: String): CreateModelResponse @aws_cognito_user_pools
   GenerateChallenge(tileType: String!, grid: [[String]]): GenerateChallengeResponse @aws_cognito_user_pools
+  # Fine-Tuning Mutations
+  RegisterCustomModel(name: String!, trainingJobArn: String!): CustomModel @aws_cognito_user_pools
+  DeployCustomModel(modelId: String!): CustomModel @aws_cognito_user_pools
+  UndeployCustomModel(modelId: String!): MutationResponse @aws_cognito_user_pools
+  DeleteCustomModel(modelId: String!, force: Boolean): MutationResponse @aws_cognito_user_pools
+  # Model Warm-Up Mutations
+  WarmUpModels(modelArns: [String!]!): WarmUpSessionResponse @aws_api_key @aws_cognito_user_pools
 }
 
 schema {

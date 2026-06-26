@@ -7,8 +7,18 @@ import traceback
 import boto3
 from strands.models.sagemaker import SageMakerAIModel
 from streamable_http_sigv4 import streamablehttp_client_with_sigv4
+from bedrock_imported_model import BedrockImportedModel
 
 logger = logging.getLogger(__name__)
+
+
+def _get_region_model_prefix() -> str:
+    """Derive model prefix from AWS region. e.g. us-east-1 -> 'us', eu-west-1 -> 'eu'."""
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    return region.split("-")[0]
+
+
+DEFAULT_MODEL_ID = f"{_get_region_model_prefix()}.amazon.nova-2-lite-v1:0"
 
 
 def get_region_from_config():
@@ -68,6 +78,43 @@ def create_streamable_http_transport(gateway_url):
         service="bedrock-agentcore",
         region=get_region_from_config(),
     )
+
+
+def is_imported_model(model_id: str) -> bool:
+    """Check if a model ID is a Bedrock Imported Model ARN.
+
+    Imported model ARNs follow the pattern:
+    arn:aws:bedrock:<region>:<account>:imported-model/<id>
+    """
+    return "imported-model/" in (model_id or "")
+
+
+def create_imported_model(model_id: str, stream: bool = True):
+    """Create a BedrockImportedModel from an imported model ARN.
+
+    Args:
+        model_id: The imported model ARN.
+        stream: Whether to enable streaming (always True for imported models).
+
+    Returns:
+        A configured BedrockImportedModel instance.
+    """
+    region = get_region_from_config()
+    logger.info(f"Creating BedrockImportedModel: model_id={model_id}, region={region}")
+    try:
+        model = BedrockImportedModel(
+            model_id=model_id,
+            region_name=region,
+            max_tokens=4096,
+            temperature=0.0,
+            streaming=stream,
+        )
+        logger.info("BedrockImportedModel created successfully")
+        return model
+    except Exception as e:
+        logger.error(f"BedrockImportedModel creation failed: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
 
 
 def create_sagemaker_model(model_id: str, role_arn: str = None, stream: bool = False):

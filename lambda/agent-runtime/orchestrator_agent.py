@@ -18,7 +18,7 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from bedrock_agentcore.memory import MemoryClient
 from strands import Agent, tool
 from strands.models import BedrockModel
-from agent_utils import get_region_from_config, create_streamable_http_transport, create_sagemaker_model
+from agent_utils import get_region_from_config, create_streamable_http_transport, create_sagemaker_model, create_imported_model, is_imported_model, DEFAULT_MODEL_ID
 from mcp.client.streamable_http import streamablehttp_client
 from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.executors import ConcurrentToolExecutor, SequentialToolExecutor
@@ -282,7 +282,7 @@ def create_orchestrator_agent(session_id: str = None, tools: Optional[List] = No
 
     # Default model configuration
     model_config = {
-        "model_id": model_id or "us.amazon.nova-2-lite-v1:0",
+        "model_id": model_id or DEFAULT_MODEL_ID,
         "max_tokens": 8192,
         "streaming": True
     }
@@ -306,6 +306,10 @@ def create_orchestrator_agent(session_id: str = None, tools: Optional[List] = No
         model = create_sagemaker_model(
             actual_model_id, role_arn=sagemaker_invoke_role_arn, stream=True,
         )
+    elif is_imported_model(actual_model_id):
+        if guardrail_id:
+            logger.warning(f"Guardrail config (id={guardrail_id}) ignored — Imported models do not support Bedrock guardrails")
+        model = create_imported_model(actual_model_id, stream=True)
     else:
         logger.info(f"Creating BedrockModel with config: {model_config}")
         try:

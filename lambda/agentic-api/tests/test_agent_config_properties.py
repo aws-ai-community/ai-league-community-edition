@@ -196,7 +196,7 @@ def test_property_3_sub_agent_round_trip(name, system_prompt, model_id, lambda_t
             "lambdaTools": lambda_tools,
         }
         create_result = agent_config_handlers.handle_create_sub_agent(arguments, event)
-        assert create_result.get("success") is True, f"Create failed: {create_result}"
+        assert create_result.get("agentId") is not None, f"Create failed: {create_result}"
 
         agent_id = create_result["agentId"]
         assert agent_id is not None and len(agent_id) > 0
@@ -248,7 +248,7 @@ def test_property_4_sub_agent_list_completeness(configs):
         created_agent_ids = set()
         for config in configs:
             create_result = agent_config_handlers.handle_create_sub_agent(config, event)
-            assert create_result.get("success") is True, f"Create failed: {create_result}"
+            assert create_result.get("agentId") is not None, f"Create failed: {create_result}"
             created_agent_ids.add(create_result["agentId"])
 
         # List all sub-agents

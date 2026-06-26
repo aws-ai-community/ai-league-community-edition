@@ -847,6 +847,163 @@ export async function createModel(config: { name: string; resourceIdentifier: st
   }, true);
 }
 
+// --- Fine-Tuning Types and Helpers ---
+
+export interface TrainingArtifactUrlResponse {
+  url: string;
+  expiresIn: number;
+}
+
+export async function getTrainingArtifactUrl(artifactKey: string): Promise<{ GetTrainingArtifactUrl: TrainingArtifactUrlResponse }> {
+  const query = `
+    query GetTrainingArtifactUrl($artifactKey: String!) {
+      GetTrainingArtifactUrl(artifactKey: $artifactKey) {
+        url
+        expiresIn
+      }
+    }
+  `;
+  return graphqlRequest<{ GetTrainingArtifactUrl: TrainingArtifactUrlResponse }>(query, { artifactKey }, true);
+}
+
+export interface StudioPresignedUrlResponse {
+  url: string;
+  error: string | null;
+}
+
+export async function getStudioPresignedUrl(): Promise<{ GetStudioPresignedUrl: StudioPresignedUrlResponse }> {
+  const query = `
+    query GetStudioPresignedUrl {
+      GetStudioPresignedUrl {
+        url
+        error
+      }
+    }
+  `;
+  return graphqlRequest<{ GetStudioPresignedUrl: StudioPresignedUrlResponse }>(query, undefined, true);
+}
+
+// --- Fine-Tuning Types and Helpers ---
+
+export interface CustomModelResponse {
+  modelId: string;
+  userId: string | null;
+  name: string;
+  trainingJobArn: string;
+  deploymentArn: string | null;
+  status: string;
+  baseModelId: string | null;
+  failureReason: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export async function registerCustomModel(name: string, trainingJobArn: string): Promise<{ RegisterCustomModel: CustomModelResponse }> {
+  const query = `
+    mutation RegisterCustomModel($name: String!, $trainingJobArn: String!) {
+      RegisterCustomModel(name: $name, trainingJobArn: $trainingJobArn) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ RegisterCustomModel: CustomModelResponse }>(query, { name, trainingJobArn }, true);
+}
+
+export async function listCustomModels(): Promise<{ ListCustomModels: CustomModelResponse[] }> {
+  const query = `
+    query ListCustomModels {
+      ListCustomModels {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ ListCustomModels: CustomModelResponse[] }>(query, undefined, true);
+}
+
+export async function deployCustomModel(modelId: string): Promise<{ DeployCustomModel: CustomModelResponse }> {
+  const query = `
+    mutation DeployCustomModel($modelId: String!) {
+      DeployCustomModel(modelId: $modelId) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ DeployCustomModel: CustomModelResponse }>(query, { modelId }, true);
+}
+
+export async function deleteCustomModel(modelId: string, force?: boolean): Promise<{ DeleteCustomModel: MutationResponse }> {
+  const query = `
+    mutation DeleteCustomModel($modelId: String!, $force: Boolean) {
+      DeleteCustomModel(modelId: $modelId, force: $force) {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ DeleteCustomModel: MutationResponse }>(query, { modelId, force: force ?? null }, true);
+}
+
+export async function undeployCustomModel(modelId: string): Promise<{ UndeployCustomModel: MutationResponse }> {
+  const query = `
+    mutation UndeployCustomModel($modelId: String!) {
+      UndeployCustomModel(modelId: $modelId) {
+        success
+        statusCode
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ UndeployCustomModel: MutationResponse }>(query, { modelId }, true);
+}
+
+export async function getCustomModelStatus(modelId: string): Promise<{ GetCustomModelStatus: CustomModelResponse }> {
+  const query = `
+    query GetCustomModelStatus($modelId: String!) {
+      GetCustomModelStatus(modelId: $modelId) {
+        modelId
+        userId
+        name
+        trainingJobArn
+        deploymentArn
+        status
+        baseModelId
+        failureReason
+        createdAt
+        updatedAt
+      }
+    }
+  `;
+  return graphqlRequest<{ GetCustomModelStatus: CustomModelResponse }>(query, { modelId }, true);
+}
+
 export interface GenerateChallengeResponse {
   question: string;
   expectedAnswer: string;
@@ -874,4 +1031,55 @@ export async function generateChallenge(tileType: string, grid?: string[][]): Pr
     }
   `;
   return graphqlRequest<{ GenerateChallenge: GenerateChallengeResponse }>(query, { tileType, grid: grid || null }, true);
+}
+
+// --- Model Warm-Up Types and Helpers ---
+
+export interface WarmUpModelStatus {
+  modelArn: string;
+  status: string;
+  error?: string | null;
+}
+
+export interface WarmUpSessionResponse {
+  sessionId: string;
+  status: string;
+  models?: WarmUpModelStatus[];
+  message?: string | null;
+}
+
+export async function warmUpModels(modelArns: string[]): Promise<{ WarmUpModels: WarmUpSessionResponse }> {
+  const query = `
+    mutation WarmUpModels($modelArns: [String!]!) {
+      WarmUpModels(modelArns: $modelArns) {
+        sessionId
+        status
+        models {
+          modelArn
+          status
+          error
+        }
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ WarmUpModels: WarmUpSessionResponse }>(query, { modelArns }, true);
+}
+
+export async function getWarmUpStatus(sessionId: string): Promise<{ WarmUpStatus: WarmUpSessionResponse }> {
+  const query = `
+    query WarmUpStatus($sessionId: String!) {
+      WarmUpStatus(sessionId: $sessionId) {
+        sessionId
+        status
+        models {
+          modelArn
+          status
+          error
+        }
+        message
+      }
+    }
+  `;
+  return graphqlRequest<{ WarmUpStatus: WarmUpSessionResponse }>(query, { sessionId }, true);
 }

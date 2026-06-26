@@ -7,11 +7,21 @@ Dark Prophet (c4): LLM picks AWS docs URL, fetches content, extracts Q&A.
 
 import json
 import logging
+import os
 import random
 import subprocess
 import urllib.request
 
 import boto3
+
+
+def _get_region_model_prefix() -> str:
+    """Derive model prefix from AWS region. e.g. us-east-1 -> 'us', eu-west-1 -> 'eu'."""
+    region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "us-east-1"))
+    return region.split("-")[0]
+
+
+_DEFAULT_MODEL_ID = f"{_get_region_model_prefix()}.amazon.nova-2-lite-v1:0"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -44,9 +54,8 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
     if identity:
         user_id = identity.get("sub") or identity.get("username", "anonymous")
 
-    model_id = "us.amazon.nova-2-lite-v1:0"
+    model_id = _DEFAULT_MODEL_ID
     try:
-        import os
         table_name = os.environ.get("AGENT_CONFIGURATIONS_TABLE", "")
         if table_name:
             dynamodb = boto3.resource("dynamodb")
@@ -94,7 +103,7 @@ def handle_generate_challenge(arguments: dict, event: dict) -> dict:
 
 def _bedrock_generate(prompt: str, max_tokens: int = 512) -> str:
     """Call Bedrock Converse to generate text. Uses model configured via handle_generate_challenge."""
-    model_id = getattr(_bedrock_generate, "_model_id", "us.amazon.nova-2-lite-v1:0")
+    model_id = getattr(_bedrock_generate, "_model_id", _DEFAULT_MODEL_ID)
     client = boto3.client("bedrock-runtime")
     response = client.converse(
         modelId=model_id,

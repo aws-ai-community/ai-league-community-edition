@@ -14,7 +14,9 @@ import Modal from '@cloudscape-design/components/modal';
 
 import { useAuth } from '../../contexts/AuthProvider';
 import { listMaps, getMap as getMapFromApi, MapDocument } from '../../services/mapsApi';
-import { invokeAgentCoreRuntime, getGameSession, submitToLeaderboard, createModel, getAgentCoreRuntime } from '../../services/graphqlClient';
+import { invokeAgentCoreRuntime, getGameSession, submitToLeaderboard, createModel, getAgentCoreRuntime, listCustomModels, getSupervisorAgent, listSubAgents } from '../../services/graphqlClient';
+import { useModelWarmup } from '../../hooks/useModelWarmup';
+import { WarmUpOverlay } from './WarmUpOverlay';
 import { TILE_SPRITES, TileKey } from '../map-builder/tileData';
 import { PREDEFINED_MAPS, PredefinedMap } from '../../data/predefinedMaps';
 import championSprite from '../../assets/sprites/avatar.png';
@@ -23,6 +25,57 @@ import timeSprite from '../../assets/sprites/time.png';
 
 // Normal tile used as background for all non-wall cells
 const NORMAL_BG = TILE_SPRITES['normal'];
+
+/**
+ * Compute the number of distinct deployed custom models referenced in agent configuration.
+ * Counts deployed custom models whose deploymentArn matches any modelId in the
+ * supervisor or sub-agent configs.
+ */
+async function computeCustomModelCount(): Promise<number> {
+  try {
+    // Fetch custom models and agent config in parallel
+    const [customModelsRes, supervisorRes, subAgentsRes] = await Promise.all([
+      listCustomModels(),
+      getSupervisorAgent().catch(() => null),
+      listSubAgents().catch(() => null),
+    ]);
+
+    const customModels = customModelsRes.ListCustomModels || [];
+    const deployedModels = customModels.filter(
+      (m) => m.status === 'Deployed' && m.deploymentArn
+    );
+
+    if (deployedModels.length === 0) return 0;
+
+    // Collect all modelId values from agent configs
+    const configModelIds = new Set<string>();
+
+    const supervisor = supervisorRes?.GetSupervisorAgent;
+    if (supervisor?.modelId) {
+      configModelIds.add(supervisor.modelId);
+    }
+
+    const subAgents = subAgentsRes?.ListSubAgents || [];
+    for (const agent of subAgents) {
+      if (agent.modelId) {
+        configModelIds.add(agent.modelId);
+      }
+    }
+
+    // Count deployed custom models whose deploymentArn is referenced in any agent config
+    let count = 0;
+    for (const model of deployedModels) {
+      if (model.deploymentArn && configModelIds.has(model.deploymentArn)) {
+        count++;
+      }
+    }
+
+    return count;
+  } catch (err) {
+    console.warn('Failed to compute custom model count:', err);
+    return 0;
+  }
+}
 
 type GamePhase = 'setup' | 'playing' | 'gameover';
 
@@ -138,6 +191,16 @@ export default function GameplayPage() {
   const [scoreSummary, setScoreSummary] = useState<GameEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  // Model warm-up state
+  const { state: warmUpState, startWarmup, cancel: cancelWarmupHook, proceedAnyway } = useModelWarmup();
+  const pendingGameStartRef = useRef(false);
+
+  // Wrap cancel to also reset pending game start
+  const cancelWarmup = useCallback(() => {
+    pendingGameStartRef.current = false;
+    cancelWarmupHook();
+  }, [cancelWarmupHook]);
 
   // Refs for polling and replay
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -489,21 +552,11 @@ export default function GameplayPage() {
     };
   }, []);
 
-  // Start game
-  const handleStartGame = useCallback(async () => {
+  // Execute the actual game start (invoke runtime, start timer)
+  const executeGameStart = useCallback(async () => {
     if (!selectedMap || !mapData) return;
 
-    setError(null);
     setIsStarting(true);
-    setCombatLog([]);
-    setVisitCounts({});
-    setConsumedTiles(new Set());
-    setPlannedPath([]);
-    setScoreSummary(null);
-    setShowGameOverModal(false);
-    setSubmitSuccess(false);
-    replayQueueRef.current = [];
-    processedEventCountRef.current = 0;
 
     try {
       const mapOption = mapOptions.find((m) => m.value === selectedMap.value);
@@ -533,9 +586,13 @@ export default function GameplayPage() {
       // Pass user's prompt text to the agent (e.g., "use strategy swift")
       const navigationPath = navigationPrompt.trim();
 
+      // Compute custom model count for token penalty reduction scoring
+      const customModelCount = await computeCustomModelCount();
+
       const result = await invokeAgentCoreRuntime({
         mapId: mapOption.value,
         navigationPath,
+        customModelCount,
         mapData: inlineMapData,
       });
 
@@ -566,6 +623,75 @@ export default function GameplayPage() {
       setIsStarting(false);
     }
   }, [selectedMap, mapData, mapOptions, navigationPrompt, startPolling]);
+
+  // Start game (with warm-up gate for imported models)
+  const handleStartGame = useCallback(async () => {
+    if (!selectedMap || !mapData) return;
+
+    setError(null);
+    setIsStarting(true);
+    setCombatLog([]);
+    setVisitCounts({});
+    setConsumedTiles(new Set());
+    setPlannedPath([]);
+    setScoreSummary(null);
+    setShowGameOverModal(false);
+    setSubmitSuccess(false);
+    replayQueueRef.current = [];
+    processedEventCountRef.current = 0;
+
+    try {
+      // Detect imported models in agent configuration
+      const importedModelArns: string[] = [];
+      try {
+        const [supervisorRes, subAgentsRes] = await Promise.all([
+          getSupervisorAgent().catch(() => null),
+          listSubAgents().catch(() => null),
+        ]);
+
+        const supervisor = supervisorRes?.GetSupervisorAgent;
+        if (supervisor?.modelId && supervisor.modelId.includes('imported-model/')) {
+          importedModelArns.push(supervisor.modelId);
+        }
+
+        const subAgents = subAgentsRes?.ListSubAgents || [];
+        for (const agent of subAgents) {
+          if (agent.modelId && agent.modelId.includes('imported-model/')) {
+            importedModelArns.push(agent.modelId);
+          }
+        }
+      } catch {
+        // If detection fails, proceed without warm-up
+      }
+
+      // Deduplicate ARNs
+      const uniqueArns = [...new Set(importedModelArns)];
+
+      if (uniqueArns.length > 0) {
+        // Imported models found — initiate warm-up and wait
+        pendingGameStartRef.current = true;
+        setIsStarting(false);
+        startWarmup(uniqueArns);
+        return;
+      }
+
+      // No imported models — proceed with game start immediately
+      await executeGameStart();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start game');
+      setIsStarting(false);
+    }
+  }, [selectedMap, mapData, mapOptions, navigationPrompt, startPolling, startWarmup, executeGameStart]);
+
+  // Watch warm-up state: when warm-up completes, proceed with game start
+  useEffect(() => {
+    if (!pendingGameStartRef.current) return;
+
+    if (warmUpState.phase === 'ready' || warmUpState.phase === 'skipped') {
+      pendingGameStartRef.current = false;
+      executeGameStart();
+    }
+  }, [warmUpState.phase, executeGameStart]);
 
   // Submit to leaderboard
   const handleSubmitToLeaderboard = useCallback(async () => {
@@ -1019,6 +1145,9 @@ export default function GameplayPage() {
           </Box>
         </SpaceBetween>
       </Modal>
+
+      {/* Warm-Up Overlay */}
+      <WarmUpOverlay state={warmUpState} onCancel={cancelWarmup} onProceedAnyway={proceedAnyway} />
     </SpaceBetween>
   );
 }

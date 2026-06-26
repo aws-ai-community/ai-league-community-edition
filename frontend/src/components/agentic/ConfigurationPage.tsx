@@ -20,6 +20,7 @@ import {
   saveSchemaModelConfig,
   resetConfiguration,
 } from '../../services/graphqlClient';
+import { loadSettings } from '../../services/settingsLoader';
 
 // Model definitions
 interface ModelDefinition {
@@ -29,21 +30,34 @@ interface ModelDefinition {
   hasCostWarning: boolean;
 }
 
-const AVAILABLE_MODELS: ModelDefinition[] = [
-  { modelId: 'us.amazon.nova-2-lite-v1:0', displayName: 'Nova 2 Lite', family: 'Amazon Nova', hasCostWarning: false },
-  { modelId: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', displayName: 'Claude Haiku 4.5', family: 'Anthropic', hasCostWarning: true },
-];
+function getRegionPrefix(defaultModelId?: string): string {
+  if (defaultModelId) {
+    const prefix = defaultModelId.split('.')[0];
+    if (['us', 'eu', 'ap'].includes(prefix)) return prefix;
+  }
+  return 'us';
+}
 
-const DEFAULT_MODEL_ID = 'us.amazon.nova-2-lite-v1:0';
+function getAvailableModels(regionPrefix: string): ModelDefinition[] {
+  return [
+    { modelId: `${regionPrefix}.amazon.nova-2-lite-v1:0`, displayName: 'Nova 2 Lite', family: 'Amazon Nova', hasCostWarning: false },
+    { modelId: `${regionPrefix}.anthropic.claude-haiku-4-5-20251001-v1:0`, displayName: 'Claude Haiku 4.5', family: 'Anthropic', hasCostWarning: true },
+  ];
+}
+
+// Fallback values used before settings are loaded
+const FALLBACK_REGION_PREFIX = 'us';
+const FALLBACK_MODELS: ModelDefinition[] = getAvailableModels(FALLBACK_REGION_PREFIX);
+const FALLBACK_DEFAULT_MODEL_ID = `${FALLBACK_REGION_PREFIX}.amazon.nova-2-lite-v1:0`;
 
 const USE_DEFAULT_OPTION: SelectProps.Option = {
   label: 'Use Default',
   value: '__use_default__',
 };
 
-function buildModelOptions(): SelectProps.Options {
+function buildModelOptions(models: ModelDefinition[]): SelectProps.Options {
   const groups: Record<string, SelectProps.Option[]> = {};
-  for (const model of AVAILABLE_MODELS) {
+  for (const model of models) {
     if (!groups[model.family]) {
       groups[model.family] = [];
     }
@@ -60,9 +74,9 @@ function buildModelOptions(): SelectProps.Options {
   }));
 }
 
-function buildDefaultModelOptions(): SelectProps.Options {
+function buildDefaultModelOptions(models: ModelDefinition[]): SelectProps.Options {
   const groups: Record<string, SelectProps.Option[]> = {};
-  for (const model of AVAILABLE_MODELS) {
+  for (const model of models) {
     if (!groups[model.family]) {
       groups[model.family] = [];
     }
@@ -79,30 +93,32 @@ function buildDefaultModelOptions(): SelectProps.Options {
   }));
 }
 
-function buildOverrideOptions(): SelectProps.Options {
+function buildOverrideOptions(models: ModelDefinition[]): SelectProps.Options {
   return [
     { label: 'Use Default', value: '__use_default__', options: undefined } as unknown as SelectProps.OptionGroup,
-    ...buildModelOptions() as SelectProps.OptionGroup[],
+    ...buildModelOptions(models) as SelectProps.OptionGroup[],
   ];
 }
 
-function findModelOption(modelId: string | null): SelectProps.Option | null {
+function findModelOption(modelId: string | null, models: ModelDefinition[]): SelectProps.Option | null {
   if (!modelId) return null;
-  const model = AVAILABLE_MODELS.find((m) => m.modelId === modelId);
+  const model = models.find((m) => m.modelId === modelId);
   if (!model) return null;
   return { label: model.displayName, value: model.modelId };
 }
 
-function findOverrideOption(modelId: string | null): SelectProps.Option {
+function findOverrideOption(modelId: string | null, models: ModelDefinition[]): SelectProps.Option {
   if (!modelId) return USE_DEFAULT_OPTION;
-  const model = AVAILABLE_MODELS.find((m) => m.modelId === modelId);
+  const model = models.find((m) => m.modelId === modelId);
   if (!model) return USE_DEFAULT_OPTION;
   return { label: model.displayName, value: model.modelId };
 }
 
 export default function ConfigurationPage() {
+  const [availableModels, setAvailableModels] = useState<ModelDefinition[]>(FALLBACK_MODELS);
+  const [defaultModelId, setDefaultModelId] = useState<string>(FALLBACK_DEFAULT_MODEL_ID);
   const [defaultModel, setDefaultModel] = useState<SelectProps.Option | null>(
-    findModelOption(DEFAULT_MODEL_ID),
+    findModelOption(FALLBACK_DEFAULT_MODEL_ID, FALLBACK_MODELS),
   );
   const [challengeGeneration, setChallengeGeneration] = useState<SelectProps.Option>(USE_DEFAULT_OPTION);
   const [challengeGrading, setChallengeGrading] = useState<SelectProps.Option>(USE_DEFAULT_OPTION);
@@ -120,7 +136,7 @@ export default function ConfigurationPage() {
 
   // Schema Generation Model state
   const [schemaModel, setSchemaModel] = useState<SelectProps.Option | null>(
-    findModelOption(DEFAULT_MODEL_ID),
+    findModelOption(FALLBACK_DEFAULT_MODEL_ID, FALLBACK_MODELS),
   );
   const [schemaModelLoading, setSchemaModelLoading] = useState(false);
 
@@ -167,24 +183,35 @@ export default function ConfigurationPage() {
       setLoading(true);
       setError(null);
       try {
+        // Load settings to get region-aware default model ID
+        const settings = await loadSettings();
+        const resolvedDefaultModelId = settings.defaultModelId || FALLBACK_DEFAULT_MODEL_ID;
+        const regionPrefix = getRegionPrefix(resolvedDefaultModelId);
+        const models = getAvailableModels(regionPrefix);
+
+        if (!cancelled) {
+          setAvailableModels(models);
+          setDefaultModelId(resolvedDefaultModelId);
+        }
+
         const [llmResult, ideResult, schemaResult] = await Promise.all([
           getLlmConfiguration(),
           getCodeEditorStatus().catch(() => ({ GetCodeEditorStatus: { status: 'Stopped', message: null } })),
-          getSchemaModelConfig().catch(() => ({ GetSchemaModelConfig: { modelId: DEFAULT_MODEL_ID } })),
+          getSchemaModelConfig().catch(() => ({ GetSchemaModelConfig: { modelId: resolvedDefaultModelId } })),
         ]);
         if (!cancelled) {
           const config = llmResult.GetLlmConfiguration;
-          setDefaultModel(findModelOption(config.defaultModel) ?? findModelOption(DEFAULT_MODEL_ID));
-          setChallengeGeneration(findOverrideOption(config.challengeGeneration));
-          setChallengeGrading(findOverrideOption(config.challengeGrading));
-          setGameCommentary(findOverrideOption(config.gameCommentary));
+          setDefaultModel(findModelOption(config.defaultModel, models) ?? findModelOption(resolvedDefaultModelId, models));
+          setChallengeGeneration(findOverrideOption(config.challengeGeneration, models));
+          setChallengeGrading(findOverrideOption(config.challengeGrading, models));
+          setGameCommentary(findOverrideOption(config.gameCommentary, models));
 
           // IDE status
           setIdeStatus(ideResult.GetCodeEditorStatus.status);
 
           // Schema model config
           const schemaModelId = schemaResult?.GetSchemaModelConfig?.modelId;
-          setSchemaModel(findModelOption(schemaModelId ?? null) ?? findModelOption(DEFAULT_MODEL_ID));
+          setSchemaModel(findModelOption(schemaModelId ?? null, models) ?? findModelOption(resolvedDefaultModelId, models));
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -207,7 +234,7 @@ export default function ConfigurationPage() {
     setSuccess(null);
     try {
       await saveLlmConfiguration({
-        defaultModel: defaultModel?.value ?? DEFAULT_MODEL_ID,
+        defaultModel: defaultModel?.value ?? defaultModelId,
         challengeGeneration: challengeGeneration.value === '__use_default__' ? undefined : challengeGeneration.value,
         challengeGrading: challengeGrading.value === '__use_default__' ? undefined : challengeGrading.value,
         gameCommentary: gameCommentary.value === '__use_default__' ? undefined : gameCommentary.value,
@@ -221,7 +248,7 @@ export default function ConfigurationPage() {
   };
 
   const handleReset = () => {
-    setDefaultModel(findModelOption(DEFAULT_MODEL_ID));
+    setDefaultModel(findModelOption(defaultModelId, availableModels));
     setChallengeGeneration(USE_DEFAULT_OPTION);
     setChallengeGrading(USE_DEFAULT_OPTION);
     setGameCommentary(USE_DEFAULT_OPTION);
@@ -256,7 +283,7 @@ export default function ConfigurationPage() {
     setSchemaModel(option);
     setSchemaModelLoading(true);
     try {
-      await saveSchemaModelConfig(option.value || DEFAULT_MODEL_ID);
+      await saveSchemaModelConfig(option.value || defaultModelId);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -277,10 +304,10 @@ export default function ConfigurationPage() {
     }
   };
 
-  const defaultModelOptions = buildDefaultModelOptions();
+  const defaultModelOptions = buildDefaultModelOptions(availableModels);
   const overrideOptions: SelectProps.Options = [
     USE_DEFAULT_OPTION,
-    ...buildModelOptions() as SelectProps.OptionGroup[],
+    ...buildModelOptions(availableModels) as SelectProps.OptionGroup[],
   ];
 
   return (

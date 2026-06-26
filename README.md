@@ -11,8 +11,10 @@ The solution only runs in **us-east-1**
 | Item | Cost | Notes |
 |------|------|-------|
 | Monthly infrastructure | ~$2/month | Solution running in your account |
-| Per game attempt | $0.25–$1/game | Varies depending on token usage (Nova Lite 2) |
+| Per game attempt | $0.15–$0.70/game | Varies depending on token usage (Nova Lite 2) |
 | Fine-tuning a model | ~$30/model | Varies by configuration; service rate is $80/hour. Set a hardstop in hyperparameters to control cost |
+
+See [estimated-costs.md](estimated-costs.md) for a detailed breakdown by service.
 
 ## Features
 
@@ -85,6 +87,45 @@ The solution only runs in **us-east-1**
 - Door/key mechanics, passive tiles (coins, spikes), and wall collision detection
 - Challenge generation via Amazon Bedrock LLMs
 
+### Fine-Tuning
+- **Fine-Tuning Page** — Guided workflow for creating and deploying custom fine-tuned models
+  - Step-by-step process: download sample data → train in SageMaker → register → deploy → use in Agent Builder
+  - Direct link to SageMaker Studio with auto-authentication (presigned URL)
+  - Cost warning banner ($80/hour) and quota guidance
+  - Third-party cookie troubleshooting hint
+- **Sample Training Artifacts** — Downloadable datasets and reward functions
+  - Tool Call: 500 training + 100 evaluation JSONL entries + reward function
+  - Faithfulness: 403 training + 81 evaluation JSONL entries + reward function
+  - All served via pre-signed S3 URLs with forced file download
+- **Custom Model Registration** — Register completed SageMaker training jobs
+  - ARN validation (client-side + server-side regex)
+  - SageMaker DescribeTrainingJob verification (must be Completed)
+  - Duplicate detection per user
+- **Model Deployment** — Deploy registered models via Bedrock Custom Model Import
+  - Status tracking: Registered → Deploying → Deployed (or Failed)
+  - Auto-polling for deployment status every 10 seconds
+  - Deployed models appear in Agent Builder model dropdowns
+- **Model Undeployment** — Remove Bedrock deployment while keeping the registration
+  - Usage check: blocks undeploy if model is selected in any agent config
+  - Retry with exponential backoff (3 attempts) + deletion verification
+- **Model Deletion** — Remove registration from the system
+  - Blocked while model is deployed (must undeploy first)
+- **Token Penalty Reduction** — Scoring incentive for using custom models
+  - Schedule: 1 model = 50%, 2 = 70%, 3 = 85%, 4 = 92%, 5 = 95% reduction
+  - Custom model count computed from agent config at game runtime
+- **Reset Integration** — "Reset Configuration" cleans up all custom models
+  - Retry + verify pattern for Bedrock deployment deletion
+  - Reports partial failures to user (no silent cost leaks)
+- **CDK Destroy Cleanup** — Custom resource automatically removes all deployments on stack deletion
+  - Retry + verify pattern matching the reset handler
+  - Always returns SUCCESS so stack deletion is never blocked
+- **Infrastructure** — All fine-tuning resources defined in CDK
+  - S3 bucket for sample artifacts (deployed via BucketDeployment)
+  - Default SageMaker bucket (`sagemaker-{region}-{account}`)
+  - IAM permissions: Bedrock deployments, SageMaker DescribeTrainingJob, Hub content, JumpStart S3
+  - SageMaker execution role with Lambda + Bedrock + iam:PassRole permissions
+  - GraphQL schema: 4 queries + 4 mutations for fine-tuning operations
+
 ## Architecture
 
 ```
@@ -92,6 +133,9 @@ Browser → CloudFront → S3 (static assets + settings.json + aws-exports.json)
                      → API Gateway /api/* → Lambda (Node.js) → DynamoDB (Maps, Profiles)
                      → AppSync GraphQL → Lambda (Python) → DynamoDB (GameSessions, Leaderboard, Submissions, AgentConfigurations)
                                                          → Amazon Bedrock (LLM invocations)
+                                                         → Amazon Bedrock (Custom Model Import - fine-tuning)
+                                                         → SageMaker (DescribeTrainingJob - ARN validation)
+                                                         → S3 (pre-signed URLs for sample training artifacts)
                                                          → Game Runner Lambda (async, 10-min timeout)
                                                              → AgentCore Runtime (container)
                                                                  → Strands Agent (supervisor)
@@ -101,8 +145,9 @@ Browser → CloudFront → S3 (static assets + settings.json + aws-exports.json)
 
 AgentCore Runtime: ECR container built via CodeBuild, deployed as BedrockAgentCore Runtime
 AgentCore Gateway: MCP protocol bridge to Lambda tools (Pathfinder)
+SageMaker Studio: Fine-tuning UI (RLVR training with Qwen 3 0.6B)
 Cognito User Pool (authentication)
-Custom Resource Lambdas (admin seeding, container build trigger)
+Custom Resource Lambdas (admin seeding, container build trigger, runtime update, cleanup on destroy)
 ```
 
 - **Frontend**: Vite + React 19 + TypeScript + CloudScape components
@@ -122,6 +167,7 @@ Custom Resource Lambdas (admin seeding, container build trigger)
 5. [AWS CLI](https://aws.amazon.com/cli/) installed and configured
 6. [AWS CDK CLI](https://docs.aws.amazon.com/cdk/latest/guide/getting_started.html) installed (`npm install -g aws-cdk`)
 7. [Docker](https://docs.docker.com/get-docker/) installed (used for frontend bundling during CDK synthesis)
+8. (For fine-tuning) Request quota increase for "Maximum number of concurrent model customization serverless jobs per Region" in us-east-1
 
 ## Deploy
 
@@ -183,6 +229,7 @@ ai-league-community-edition/
 │   │   │   │   └── tileData.ts
 │   │   │   └── agentic/      # Agentic Game Engine pages
 │   │   │       ├── AgentBuilderPage.tsx
+│   │   │       ├── FineTuningPage.tsx
 │   │   │       ├── GameplayPage.tsx
 │   │   │       ├── LeaderboardPage.tsx
 │   │   │       ├── SubmissionHistoryPage.tsx
@@ -225,6 +272,7 @@ ai-league-community-edition/
 │   │   ├── game_runner.py    # Game session orchestration (v1 + v2)
 │   │   ├── game_runner_handler.py  # Async game runner Lambda
 │   │   ├── agent_config_handlers.py  # CRUD for supervisor/sub-agents/tools
+│   │   ├── fine_tuning_handlers.py  # Custom model register/deploy/undeploy/delete
 │   │   ├── agentcore_client.py  # AgentCore Runtime invocation client
 │   │   ├── path_parser.py    # Parse agent response into navigation path
 │   │   ├── prompt_formatter.py  # Build navigation prompt from map data
@@ -235,6 +283,13 @@ ai-league-community-edition/
 │   │   └── tests/            # Python property-based tests (hypothesis)
 │   └── pathfinder-tool/      # Pathfinder Lambda tool
 │       └── index.py          # BFS pathfinding (swift + get_coins strategies)
+├── sample-training-artifacts/ # Fine-tuning datasets and reward functions
+│   ├── tool-call-training.jsonl
+│   ├── tool-call-eval.jsonl
+│   ├── reward-function-tool-call.py
+│   ├── faithfulness-training.jsonl
+│   ├── faithfulness-eval.jsonl
+│   └── reward-function-faithfulness.py
 ├── tests/                    # Frontend test suites
 │   ├── unit/                 # Example-based unit tests
 │   └── property/             # Property-based tests (fast-check)
@@ -263,10 +318,6 @@ CDK_DEFAULT_REGION=<region> npx cdk destroy
 ```
 
 This removes all deployed resources including the Cognito User Pool, DynamoDB tables, and all user data.
-
-## Roadmap
-
-- **Phase 4**: Advanced Scoring — Model Workshop, advanced leaderboard features, submission flow
 
 ## License
 

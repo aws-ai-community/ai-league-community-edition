@@ -41,6 +41,7 @@ describe('NavigationPanel', () => {
       { text: 'Submission History', href: '/submission-history' },
       { text: 'Configuration', href: '/configuration' },
       { text: 'Agent Builder', href: '/agent-builder' },
+      { text: 'Fine-Tuning', href: '/fine-tuning' },
       { text: 'Agentic Workshop', href: 'https://catalog.us-east-1.prod.workshops.aws/workshops/0c1f072b-ebd1-4d8d-9340-dd47479481c0/en-US/introduction' },
       { text: 'Builder Center', href: 'https://builder.aws.com/connect/space/7e5f51ef-0919-32da-aaa7-ddf263651d69/aws-ai-league' },
       { text: 'Builder Center (Community)', href: 'https://builder.aws.com/connect/space/7148b02a-ef8c-3a67-97c9-53be6bd54999/ai-community' },
@@ -54,7 +55,7 @@ describe('NavigationPanel', () => {
     render(<NavigationPanel />);
 
     const links = screen.getAllByRole('link');
-    expect(links).toHaveLength(14);
+    expect(links).toHaveLength(15);
 
     links.forEach((link, index) => {
       expect(link).toHaveTextContent(expectedLinks[index].text);
@@ -77,13 +78,13 @@ describe('NavigationPanel', () => {
   });
 
   describe('navigationItems data structure', () => {
-    it('contains exactly 15 items (6 internal links + 1 divider + 8 external links)', () => {
-      expect(navigationItems).toHaveLength(15);
+    it('contains exactly 16 items (7 internal links + 1 divider + 8 external links)', () => {
+      expect(navigationItems).toHaveLength(16);
     });
 
     it('all link items have correct type', () => {
       const linkItems = navigationItems.filter((item) => item.type === 'link');
-      expect(linkItems).toHaveLength(14);
+      expect(linkItems).toHaveLength(15);
     });
 
     it('external link items have external true', () => {
@@ -101,6 +102,7 @@ describe('NavigationPanel', () => {
         'Submission History',
         'Configuration',
         'Agent Builder',
+        'Fine-Tuning',
         'Agentic Workshop',
         'Builder Center',
         'Builder Center (Community)',

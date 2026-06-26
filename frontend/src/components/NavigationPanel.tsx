@@ -34,6 +34,11 @@ export const navigationItems: SideNavigationProps.Item[] = [
     text: "Agent Builder",
     href: "/agent-builder",
   },
+  {
+    type: "link",
+    text: "Fine-Tuning",
+    href: "/fine-tuning",
+  },
   { type: "divider" },
   {
     type: "link",
