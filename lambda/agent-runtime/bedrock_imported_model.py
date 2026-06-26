@@ -251,6 +251,35 @@ class BedrockImportedModel(Model):
         Yields:
             StreamEvent dicts compatible with the Strands agent loop.
         """
+        # Short-circuit: if this is a follow-up call after tool execution (messages
+        # contain a toolResult), extract the last tool result and return it directly.
+        # This matches the competition framework behaviour where the tool's output
+        # IS the sub-agent's final answer — no second model invocation needed.
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                for block in msg.get("content", []):
+                    if isinstance(block, dict) and "toolResult" in block:
+                        tool_result = block["toolResult"]
+                        result_text = ""
+                        for c in tool_result.get("content", []):
+                            if "text" in c:
+                                result_text += c["text"]
+                            elif "json" in c:
+                                result_text += json.dumps(c["json"])
+                        if result_text:
+                            logger.info(
+                                "BedrockImportedModel: returning tool result directly: %s",
+                                result_text[:100],
+                            )
+                            yield {"messageStart": {"role": "assistant"}}
+                            yield {"contentBlockStart": {"start": {}}, "contentBlockIndex": 0}
+                            yield {"contentBlockDelta": {"delta": {"text": result_text.strip()}}, "contentBlockIndex": 0}
+                            yield {"contentBlockStop": {}, "contentBlockIndex": 0}
+                            yield {"messageStop": {"stopReason": "end_turn"}}
+                            yield {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, "metrics": {"latencyMs": 0}}}
+                            return
+                break  # Only check the last user message
+
         # Format request
         formatted_messages, tool_name_map = _format_messages_for_openai(messages, system_prompt, tool_specs)
 
@@ -325,22 +354,11 @@ class BedrockImportedModel(Model):
         # Then strip thinking tags from whatever text remains
         remaining_text = _strip_think_tags(remaining_text)
 
-        # Yield text content if any
-        if remaining_text.strip():
-            yield {
-                "contentBlockStart": {"start": {}},
-                "contentBlockIndex": 0,
-            }
-            yield {
-                "contentBlockDelta": {"delta": {"text": remaining_text.strip()}},
-                "contentBlockIndex": 0,
-            }
-            yield {"contentBlockStop": {}, "contentBlockIndex": 0}
-
-        # Yield tool calls if any
+        # Always execute tool calls if present — the tool's response IS the answer.
+        # Any text the model outputs alongside tool calls is ignored (model predictions).
         if tool_calls:
             for i, tool_call in enumerate(tool_calls):
-                block_index = (1 if remaining_text.strip() else 0) + i
+                block_index = i
                 # Map simplified tool name back to full MCP name
                 tool_name = tool_call["name"]
                 # Map tool name back: try exact match, simplified, then case-insensitive
@@ -376,9 +394,21 @@ class BedrockImportedModel(Model):
                 }
                 yield {"contentBlockStop": {}, "contentBlockIndex": block_index}
 
-        # Determine stop reason
-        stop_reason = "tool_use" if tool_calls else "end_turn"
-        yield {"messageStop": {"stopReason": stop_reason}}
+            # Tool-only path: trigger tool execution
+            yield {"messageStop": {"stopReason": "tool_use"}}
+        else:
+            # No tool calls — just text (or empty)
+            if remaining_text.strip():
+                yield {
+                    "contentBlockStart": {"start": {}},
+                    "contentBlockIndex": 0,
+                }
+                yield {
+                    "contentBlockDelta": {"delta": {"text": remaining_text.strip()}},
+                    "contentBlockIndex": 0,
+                }
+                yield {"contentBlockStop": {}, "contentBlockIndex": 0}
+            yield {"messageStop": {"stopReason": "end_turn"}}
 
         # Yield usage metadata
         yield {
