@@ -255,8 +255,12 @@ class BedrockImportedModel(Model):
         # contain a toolResult), extract the last tool result and return it directly.
         # This matches the competition framework behaviour where the tool's output
         # IS the sub-agent's final answer — no second model invocation needed.
+        logger.info("BedrockImportedModel: checking messages for toolResult, msg_count=%d, roles=%s",
+                    len(messages), [m.get("role") for m in messages])
         for msg in reversed(messages):
             if msg.get("role") == "user":
+                content_types = [list(b.keys()) if isinstance(b, dict) else type(b).__name__ for b in msg.get("content", [])]
+                logger.info("BedrockImportedModel: last user msg content_types=%s", content_types)
                 for block in msg.get("content", []):
                     if isinstance(block, dict) and "toolResult" in block:
                         tool_result = block["toolResult"]
