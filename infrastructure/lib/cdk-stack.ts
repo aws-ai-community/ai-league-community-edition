@@ -1506,6 +1506,16 @@ def handler(event, context):
       fieldName: 'DeleteCustomModel',
     });
 
+    // Model Warm-Up resolvers
+    agenticDataSource.createResolver('WarmUpModelsResolver', {
+      typeName: 'Mutation',
+      fieldName: 'WarmUpModels',
+    });
+    agenticDataSource.createResolver('WarmUpStatusResolver', {
+      typeName: 'Query',
+      fieldName: 'WarmUpStatus',
+    });
+
     // Profile API Lambda function (TypeScript bundled with esbuild)
     const profileLambda = new lambdaNodejs.NodejsFunction(this, 'ProfileApiLambda', {
       functionName: 'ai-league-community-profile-api',

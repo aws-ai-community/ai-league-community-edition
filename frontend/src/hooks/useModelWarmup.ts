@@ -45,6 +45,9 @@ export function useModelWarmup() {
     let sessionId: string;
     try {
       const response = await warmUpModels(modelArns);
+      if (!response?.WarmUpModels?.sessionId) {
+        throw new Error('Warm-up service returned an empty response. Please try again.');
+      }
       sessionId = response.WarmUpModels.sessionId;
     } catch (err) {
       setState((prev) => ({
