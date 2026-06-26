@@ -269,7 +269,7 @@ class TestWarmUpStatusValidity:
         mock_table = MagicMock()
         mock_table.get_item.return_value = {"Item": mock_item}
 
-        with patch("warm_up_handlers.agent_configurations_table", mock_table):
+        with patch("warm_up_handlers._get_table", return_value=mock_table):
             from warm_up_handlers import handle_warm_up_status
 
             result = handle_warm_up_status(
@@ -301,7 +301,7 @@ class TestWarmUpStatusValidity:
         mock_table = MagicMock()
         mock_table.get_item.return_value = {"Item": mock_item}
 
-        with patch("warm_up_handlers.agent_configurations_table", mock_table):
+        with patch("warm_up_handlers._get_table", return_value=mock_table):
             from warm_up_handlers import handle_warm_up_status
 
             result = handle_warm_up_status(
@@ -334,7 +334,7 @@ class TestWarmUpStatusValidity:
         mock_table = MagicMock()
         mock_table.get_item.return_value = {"Item": mock_item}
 
-        with patch("warm_up_handlers.agent_configurations_table", mock_table):
+        with patch("warm_up_handlers._get_table", return_value=mock_table):
             from warm_up_handlers import handle_warm_up_status
 
             result = handle_warm_up_status(
@@ -355,7 +355,7 @@ class TestWarmUpStatusValidity:
         mock_table = MagicMock()
         mock_table.get_item.return_value = {}  # No Item key
 
-        with patch("warm_up_handlers.agent_configurations_table", mock_table):
+        with patch("warm_up_handlers._get_table", return_value=mock_table):
             from warm_up_handlers import handle_warm_up_status
 
             result = handle_warm_up_status(
@@ -385,7 +385,7 @@ class TestWarmUpStatusValidity:
         mock_table = MagicMock()
         mock_table.get_item.return_value = {"Item": mock_item}
 
-        with patch("warm_up_handlers.agent_configurations_table", mock_table):
+        with patch("warm_up_handlers._get_table", return_value=mock_table):
             from warm_up_handlers import handle_warm_up_status
 
             result = handle_warm_up_status(

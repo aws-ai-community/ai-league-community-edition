@@ -26,23 +26,23 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def _get_required_env(name: str) -> str:
-    """Get a required environment variable or fail fast with a clear error."""
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(
-            f"Missing required environment variable: {name}. "
-            f"Ensure the Lambda function is configured with all required table name variables."
-        )
-    return value
+# Table name — required at runtime, optional during test import
+AGENT_CONFIGURATIONS_TABLE = os.environ.get("AGENT_CONFIGURATIONS_TABLE", "")
 
-
-# Fail fast on cold start if required env var is missing
-AGENT_CONFIGURATIONS_TABLE = _get_required_env("AGENT_CONFIGURATIONS_TABLE")
-
-# DynamoDB resource and table reference
+# DynamoDB resource and table reference (lazy — only fails if actually called without env var)
 dynamodb = boto3.resource("dynamodb")
-agent_configurations_table = dynamodb.Table(AGENT_CONFIGURATIONS_TABLE)
+agent_configurations_table = dynamodb.Table(AGENT_CONFIGURATIONS_TABLE) if AGENT_CONFIGURATIONS_TABLE else None
+
+
+def _get_table():
+    """Get the DynamoDB table, raising if not configured."""
+    global agent_configurations_table, AGENT_CONFIGURATIONS_TABLE
+    if agent_configurations_table is None:
+        AGENT_CONFIGURATIONS_TABLE = os.environ.get("AGENT_CONFIGURATIONS_TABLE", "")
+        if not AGENT_CONFIGURATIONS_TABLE:
+            raise RuntimeError("Missing required environment variable: AGENT_CONFIGURATIONS_TABLE")
+        agent_configurations_table = dynamodb.Table(AGENT_CONFIGURATIONS_TABLE)
+    return agent_configurations_table
 
 
 def is_imported_model(model_id: str) -> bool:
@@ -83,7 +83,7 @@ def _detect_imported_models(user_id: str) -> list:
 
     # Read the SUPERVISOR record
     try:
-        sup_response = agent_configurations_table.get_item(
+        sup_response = _get_table().get_item(
             Key={"userId": user_id, "sk": "SUPERVISOR"}
         )
         sup_item = sup_response.get("Item")
@@ -96,7 +96,7 @@ def _detect_imported_models(user_id: str) -> list:
 
     # Read all SUBAGENT records via GSI1
     try:
-        response = agent_configurations_table.query(
+        response = _get_table().query(
             IndexName="GSI1",
             KeyConditionExpression="gsi1pk = :pk AND begins_with(gsi1sk, :prefix)",
             ExpressionAttributeValues={
@@ -184,7 +184,7 @@ def handle_warm_up_models(arguments: dict, event: dict) -> dict:
     }
 
     try:
-        agent_configurations_table.put_item(Item=session_record)
+        _get_table().put_item(Item=session_record)
         logger.info(
             "Created warm-up session %s for user %s with %d models",
             session_id,
@@ -364,7 +364,7 @@ def _execute_warm_up(session_id: str, model_arns: list, user_id: str) -> None:
                     else:
                         overall_status = "warming"
 
-                    agent_configurations_table.update_item(
+                    _get_table().update_item(
                         Key={"userId": user_id, "sk": f"WARMUP#{session_id}"},
                         UpdateExpression="SET #status = :status, models = :models, updatedAt = :now",
                         ExpressionAttributeNames={"#status": "status"},
@@ -396,7 +396,7 @@ def _execute_warm_up(session_id: str, model_arns: list, user_id: str) -> None:
         # Attempt to mark session as failed
         try:
             now = datetime.now(timezone.utc).isoformat()
-            agent_configurations_table.update_item(
+            _get_table().update_item(
                 Key={"userId": user_id, "sk": f"WARMUP#{session_id}"},
                 UpdateExpression="SET #status = :status, message = :msg, updatedAt = :now",
                 ExpressionAttributeNames={"#status": "status"},
@@ -437,7 +437,7 @@ def handle_warm_up_status(arguments: dict, event: dict) -> dict:
     user_id = event.get("identity", {}).get("sub", "anonymous")
 
     try:
-        response = agent_configurations_table.get_item(
+        response = _get_table().get_item(
             Key={"userId": user_id, "sk": f"WARMUP#{session_id}"}
         )
     except Exception as e:
