@@ -95,7 +95,7 @@ def _format_messages_for_openai(
                 "function": {
                     "name": simple_name,
                     "description": spec.get("description", ""),
-                    "parameters": spec.get("inputSchema", {}),
+                    "parameters": spec.get("inputSchema", {}).get("json", spec.get("inputSchema", {})),
                 },
             }
             tools_text += f"\n{json.dumps(tool_def)}"
@@ -107,9 +107,7 @@ def _format_messages_for_openai(
         )
         system_parts.append(tools_text)
 
-    # Add /no_think to reduce unnecessary thinking output
-    system_parts.append("/no_think")
-
+    # Note: do NOT add /no_think — imported models may need <think> for tool calling
     if system_parts:
         formatted.append({"role": "system", "content": "\n\n".join(system_parts)})
 
@@ -321,11 +319,11 @@ class BedrockImportedModel(Model):
                     input_tokens = metrics.get("inputTokenCount", 0)
                     output_tokens = metrics.get("outputTokenCount", 0)
 
-        # Post-process: strip thinking tags
-        cleaned_content = _strip_think_tags(full_content)
+        # Post-process: parse tool calls FIRST (they may be inside <think> tags)
+        remaining_text, tool_calls = _parse_tool_calls(full_content)
 
-        # Parse tool calls from the cleaned content
-        remaining_text, tool_calls = _parse_tool_calls(cleaned_content)
+        # Then strip thinking tags from whatever text remains
+        remaining_text = _strip_think_tags(remaining_text)
 
         # Yield text content if any
         if remaining_text.strip():
@@ -345,7 +343,20 @@ class BedrockImportedModel(Model):
                 block_index = (1 if remaining_text.strip() else 0) + i
                 # Map simplified tool name back to full MCP name
                 tool_name = tool_call["name"]
-                full_tool_name = tool_name_map.get(tool_name, tool_name)
+                # Map tool name back: try exact match, simplified, then case-insensitive
+                full_tool_name = tool_name_map.get(tool_name)
+                if not full_tool_name:
+                    # Try stripping prefix if model used the full trained name
+                    simple = tool_name.split("___", 1)[-1] if "___" in tool_name else tool_name
+                    full_tool_name = tool_name_map.get(simple)
+                if not full_tool_name:
+                    # Case-insensitive fallback
+                    for k, v in tool_name_map.items():
+                        if k.lower() == tool_name.lower() or v.lower() == tool_name.lower():
+                            full_tool_name = v
+                            break
+                if not full_tool_name:
+                    full_tool_name = tool_name  # Last resort: use as-is
                 yield {
                     "contentBlockStart": {
                         "start": {
