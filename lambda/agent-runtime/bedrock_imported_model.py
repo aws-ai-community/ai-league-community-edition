@@ -63,9 +63,15 @@ def _format_messages_for_openai(
     messages: Messages,
     system_prompt: str | None,
     tool_specs: list[ToolSpec] | None,
-) -> list[dict]:
-    """Format Strands messages into OpenAI ChatCompletion format with tool info in system prompt."""
+) -> tuple[list[dict], dict[str, str]]:
+    """Format Strands messages into OpenAI ChatCompletion format with tool info in system prompt.
+
+    Returns:
+        Tuple of (formatted_messages, tool_name_map) where tool_name_map maps
+        simplified names back to full MCP names (e.g. "calc" -> "AgentCoreGatewayTool-X___calc").
+    """
     formatted = []
+    tool_name_map: dict[str, str] = {}  # simplified -> full name
 
     # Build system message with tool definitions embedded
     system_parts = []
@@ -76,10 +82,18 @@ def _format_messages_for_openai(
         tools_text = "\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\n"
         tools_text += "You are provided with function signatures within <tools></tools> XML tags:\n<tools>"
         for spec in tool_specs:
+            full_name = spec["name"]
+            # Simplify gateway-prefixed names (e.g. "AgentCoreGatewayTool-X___calc" -> "calc")
+            if "___" in full_name:
+                simple_name = full_name.split("___", 1)[1]
+            else:
+                simple_name = full_name
+            tool_name_map[simple_name] = full_name
+
             tool_def = {
                 "type": "function",
                 "function": {
-                    "name": spec["name"],
+                    "name": simple_name,
                     "description": spec.get("description", ""),
                     "parameters": spec.get("inputSchema", {}),
                 },
@@ -144,7 +158,7 @@ def _format_messages_for_openai(
             if text_parts:
                 formatted.append({"role": "assistant", "content": "\n".join(text_parts)})
 
-    return formatted
+    return formatted, tool_name_map
 
 
 class BedrockImportedModel(Model):
@@ -240,7 +254,7 @@ class BedrockImportedModel(Model):
             StreamEvent dicts compatible with the Strands agent loop.
         """
         # Format request
-        formatted_messages = _format_messages_for_openai(messages, system_prompt, tool_specs)
+        formatted_messages, tool_name_map = _format_messages_for_openai(messages, system_prompt, tool_specs)
 
         payload = {
             "messages": formatted_messages,
@@ -329,12 +343,15 @@ class BedrockImportedModel(Model):
         if tool_calls:
             for i, tool_call in enumerate(tool_calls):
                 block_index = (1 if remaining_text.strip() else 0) + i
+                # Map simplified tool name back to full MCP name
+                tool_name = tool_call["name"]
+                full_tool_name = tool_name_map.get(tool_name, tool_name)
                 yield {
                     "contentBlockStart": {
                         "start": {
                             "toolUse": {
                                 "toolUseId": tool_call["id"],
-                                "name": tool_call["name"],
+                                "name": full_tool_name,
                             }
                         }
                     },
