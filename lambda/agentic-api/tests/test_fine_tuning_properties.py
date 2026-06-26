@@ -531,11 +531,6 @@ class TestStatusTransitionValidity:
         }
         mock_get_response = {"Item": existing_item}
 
-        # Mock successful Bedrock deployment
-        mock_deploy_response = {
-            "customModelDeploymentArn": "arn:aws:bedrock:us-east-1:123456789012:custom-model-deployment/test-deployment"
-        }
-
         with patch.object(
             fine_tuning_handlers.agent_configurations_table,
             "get_item",
@@ -545,9 +540,16 @@ class TestStatusTransitionValidity:
             "update_item",
             return_value={},
         ), patch.object(
+            fine_tuning_handlers.sagemaker_client,
+            "describe_training_job",
+            return_value={
+                "ModelArtifacts": {"S3ModelArtifacts": "s3://bucket/output/model"},
+                "RoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+            },
+        ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "create_custom_model_deployment",
-            return_value=mock_deploy_response,
+            "create_model_import_job",
+            return_value={"jobArn": "arn:aws:bedrock:us-east-1:123456789012:model-import-job/test"},
         ):
             result = handle_deploy_custom_model(arguments, event)
 
@@ -557,7 +559,6 @@ class TestStatusTransitionValidity:
             f"got '{result['status']}'"
         )
         assert result["modelId"] == model_id
-        assert result["deploymentArn"] is not None
 
     @given(
         user_id=valid_user_id_strategy,
@@ -652,8 +653,15 @@ class TestStatusTransitionValidity:
             "update_item",
             return_value={},
         ), patch.object(
+            fine_tuning_handlers.sagemaker_client,
+            "describe_training_job",
+            return_value={
+                "ModelArtifacts": {"S3ModelArtifacts": "s3://bucket/output/model"},
+                "RoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+            },
+        ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "create_custom_model_deployment",
+            "create_model_import_job",
             side_effect=bedrock_error,
         ):
             result = handle_deploy_custom_model(arguments, event)
@@ -734,9 +742,16 @@ class TestStatusTransitionValidity:
             "update_item",
             return_value={},
         ), patch.object(
+            fine_tuning_handlers.sagemaker_client,
+            "describe_training_job",
+            return_value={
+                "ModelArtifacts": {"S3ModelArtifacts": "s3://bucket/output/model"},
+                "RoleArn": "arn:aws:iam::123456789012:role/SageMakerRole",
+            },
+        ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "create_custom_model_deployment",
-            return_value=mock_deploy_response,
+            "create_model_import_job",
+            return_value={"jobArn": "arn:aws:bedrock:us-east-1:123456789012:model-import-job/test"},
         ):
             result = handle_deploy_custom_model(arguments, event)
 
@@ -746,9 +761,6 @@ class TestStatusTransitionValidity:
         )
         assert result["failureReason"] is None, (
             f"Expected no failureReason after successful retry, got '{result['failureReason']}'"
-        )
-        assert result["deploymentArn"] is not None, (
-            "Expected deploymentArn to be set after successful deployment"
         )
 
 
@@ -1273,11 +1285,11 @@ class TestResetCleanupCompleteness:
             mock_delete_item,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_delete_deployment,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "get_custom_model_deployment",
+            "get_imported_model",
             side_effect=Exception("ResourceNotFoundException"),
         ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
@@ -1334,11 +1346,11 @@ class TestResetCleanupCompleteness:
             mock_delete_item,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_delete_deployment,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "get_custom_model_deployment",
+            "get_imported_model",
             side_effect=Exception("ResourceNotFoundException"),
         ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
@@ -1358,7 +1370,7 @@ class TestResetCleanupCompleteness:
         # Verify each deployment ARN was passed correctly
         for record in records_with_arn:
             mock_delete_deployment.assert_any_call(
-                customModelDeploymentIdentifier=record["deploymentArn"]
+                modelIdentifier=record["deploymentArn"]
             )
 
     @given(
@@ -1381,11 +1393,11 @@ class TestResetCleanupCompleteness:
             mock_delete_item,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_delete_deployment,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "get_custom_model_deployment",
+            "get_imported_model",
             side_effect=Exception("ResourceNotFoundException"),
         ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
@@ -1426,11 +1438,11 @@ class TestResetCleanupCompleteness:
             mock_delete_item,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "delete_custom_model_deployment",
+            "delete_imported_model",
             mock_delete_deployment,
         ), patch.object(
             fine_tuning_handlers.bedrock_client,
-            "get_custom_model_deployment",
+            "get_imported_model",
             side_effect=Exception("ResourceNotFoundException"),
         ), patch("fine_tuning_handlers.time.sleep"):
             from fine_tuning_handlers import handle_reset_custom_models
