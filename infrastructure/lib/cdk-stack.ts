@@ -809,10 +809,13 @@ import time
 def handler(event, context):
     sm = boto3.client('sagemaker')
     try:
-        if event['RequestType'] == 'Create':
-            domain_id = event['ResourceProperties']['DomainId']
-            space_name = event['ResourceProperties']['SpaceName']
-            user_profile = event['ResourceProperties']['UserProfileName']
+        domain_id = event['ResourceProperties']['DomainId']
+        space_name = event['ResourceProperties']['SpaceName']
+        user_profile = event['ResourceProperties']['UserProfileName']
+        # Use a stable physical resource ID to prevent CF from triggering delete on update
+        physical_id = event.get('PhysicalResourceId', f'{domain_id}/{space_name}')
+
+        def create_space():
             sm.create_space(
                 DomainId=domain_id, SpaceName=space_name,
                 OwnershipSettings={'OwnerUserProfileName': user_profile},
@@ -830,10 +833,22 @@ def handler(event, context):
                 if resp['Status'] == 'InService': break
                 if resp['Status'] == 'Failed': raise Exception('Space creation failed')
                 time.sleep(10)
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'SpaceName': space_name})
+
+        def space_exists():
+            try:
+                sm.describe_space(DomainId=domain_id, SpaceName=space_name)
+                return True
+            except sm.exceptions.ResourceNotFound:
+                return False
+
+        if event['RequestType'] == 'Create':
+            create_space()
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'SpaceName': space_name}, physical_id)
+        elif event['RequestType'] == 'Update':
+            if not space_exists():
+                create_space()
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'SpaceName': space_name}, physical_id)
         elif event['RequestType'] == 'Delete':
-            domain_id = event['ResourceProperties']['DomainId']
-            space_name = event['ResourceProperties']['SpaceName']
             # First stop/delete any running apps
             try:
                 sm.delete_app(DomainId=domain_id, SpaceName=space_name, AppType='CodeEditor', AppName='default')
@@ -858,17 +873,18 @@ def handler(event, context):
                     except:
                         break
             except: pass
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
         else:
-            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_id)
     except Exception as e:
         print(f'Error: {e}')
-        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+        physical_id = event.get('PhysicalResourceId', context.log_stream_name)
+        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)}, physical_id)
 `),
     });
     createSpaceFn.addToRolePolicy(new iam.PolicyStatement({
       actions: ['sagemaker:CreateSpace', 'sagemaker:DeleteSpace', 'sagemaker:DescribeSpace',
-                'sagemaker:CreateApp', 'sagemaker:DeleteApp'],
+                'sagemaker:UpdateSpace', 'sagemaker:CreateApp', 'sagemaker:DeleteApp'],
       resources: ['*'],
     }));
 
@@ -878,6 +894,7 @@ def handler(event, context):
         DomainId: smDomain.attrDomainId,
         SpaceName: 'ai-league-codeeditor',
         UserProfileName: 'ai-league-user',
+        Version: '2',  // bump to force Update event when space needs recreation
       },
     });
     codeEditorSpace.node.addDependency(smUserProfile);
