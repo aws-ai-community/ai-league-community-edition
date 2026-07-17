@@ -28,8 +28,8 @@ FULL_VALID_CONFIG = {
         "modelId": "us.amazon.nova-2-lite-v1:0",
         "subAgents": ["Pathfinding Specialist"],
         "tools": ["Pathfinder"],
-        "memory": "Game Memory",
-        "guardrail": "Safety Guard",
+        "memory": "GameMemory",
+        "guardrail": "SafetyGuard",
     },
     "subAgents": [
         {
@@ -43,11 +43,11 @@ FULL_VALID_CONFIG = {
         {"name": "Pathfinder", "sourceDir": "tools/Pathfinder"},
     ],
     "memory": {
-        "name": "Game Memory",
+        "name": "GameMemory",
         "description": "Stores game history",
     },
     "guardrail": {
-        "name": "Safety Guard",
+        "name": "SafetyGuard",
         "description": "Content safety",
         "blockedInputMessaging": "Blocked.",
         "blockedOutputsMessaging": "Blocked.",

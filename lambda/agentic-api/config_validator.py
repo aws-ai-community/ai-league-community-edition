@@ -137,6 +137,13 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         if isinstance(memory, dict):
             if not memory.get("name"):
                 errors.append("memory: missing required field 'name'")
+            else:
+                import re
+                if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]{0,47}$', memory["name"]):
+                    errors.append(
+                        f"memory: name '{memory['name']}' is invalid. "
+                        f"Must match [a-zA-Z][a-zA-Z0-9_]{{0,47}} (no spaces, start with letter)"
+                    )
             known_memory_keys = {"name", "description"}
             for key in memory:
                 if key not in known_memory_keys:
@@ -206,8 +213,16 @@ def _validate_supervisor_references(
 
 def _validate_guardrail(guardrail: dict, errors: list[str], warnings: list[str]) -> None:
     """Validate guardrail section."""
+    import re
+
     if not guardrail.get("name"):
         errors.append("guardrail: missing required field 'name'")
+    else:
+        if not re.match(r'^[0-9a-zA-Z\-_]+$', guardrail["name"]):
+            errors.append(
+                f"guardrail: name '{guardrail['name']}' is invalid. "
+                f"Must match [0-9a-zA-Z-_]+ (no spaces)"
+            )
 
     known_guardrail_keys = {
         "name", "description", "blockedInputMessaging", "blockedOutputsMessaging",
