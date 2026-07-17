@@ -14,10 +14,12 @@ These are reference configurations you can copy into the live `agent-config/` fo
 ```bash
 # From the repo root:
 
-# Use full config:
+# Use full config (clears existing, then copies):
+rm -rf agent-config/config.yaml agent-config/tools/
 cp -r agent-config/examples/full-config/* agent-config/
 
-# Reset to default:
+# Reset to default (clears existing, then copies):
+rm -rf agent-config/config.yaml agent-config/tools/
 cp -r agent-config/examples/default/* agent-config/
 ```
 

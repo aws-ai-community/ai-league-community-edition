@@ -14,6 +14,7 @@ This is the simple baseline configuration that ships with AI League Community Ed
 
 ```bash
 # From the repo root:
+rm -rf agent-config/config.yaml agent-config/tools/
 cp -r agent-config/examples/default/* agent-config/
 ```
 

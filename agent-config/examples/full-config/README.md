@@ -16,6 +16,7 @@ This folder contains a complete, working agent-config setup that you can copy di
 
 ```bash
 # From the repo root:
+rm -rf agent-config/config.yaml agent-config/tools/
 cp -r agent-config/examples/full-config/* agent-config/
 ```
 

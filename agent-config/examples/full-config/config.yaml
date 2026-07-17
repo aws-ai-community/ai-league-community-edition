@@ -105,8 +105,7 @@ guardrail:
       inputStrength: "MEDIUM"
       outputStrength: "MEDIUM"
     - type: "PROMPT_ATTACK"
-      inputStrength: "HIGH"
-      outputStrength: "NONE"
+      inputStrength: "NONE"
   denyTopics:
     - name: "EdiblePlants"
       definition: "Any discussion about edible plants, foraging, wild foods, or which plants are safe to eat"
