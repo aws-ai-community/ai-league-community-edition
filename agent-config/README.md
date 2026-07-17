@@ -37,14 +37,11 @@ cp -r agent-config/examples/default/* agent-config/
 Then deploy the config to your live environment:
 
 ```bash
-# Option 1: Seed config for existing deployment (nuke and pave):
-npm run seed-config -- --profile <your-aws-profile>
-
-# Option 2: Full CDK deploy with config seeding (first deploy or rebuild):
-npm run deploy:seed
-
-# Normal CDK deploy (does NOT touch agent config):
+# Standard deploy (uploads config to S3, seeds on first login):
 npm run deploy
+
+# Re-apply config to an existing deployment (nuke and pave):
+npm run seed-config -- --profile <your-aws-profile>
 ```
 
 ## Key Rules

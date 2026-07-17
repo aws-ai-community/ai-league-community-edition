@@ -960,18 +960,18 @@ def handler(event, context):
     // ========================================================================
     // Agent Configuration Seeding (Optional)
     // ========================================================================
-    // Agent Configuration Seeding (Optional — controlled by context flag)
+    // Agent Configuration Seeding (Optional)
     // ========================================================================
-    // Upload agent-config/ to S3 ONLY when explicitly requested via:
-    //   npx cdk deploy -c seedAgentConfig=true
-    // Normal deploys skip this to avoid overwriting iterated config.
+    // If agent-config/config.yaml exists in the repo, deploy it to S3 so the
+    // agentic-api Lambda can seed user configuration from it on first login.
+    // If the folder doesn't exist, no resources are created (no error).
+    // Existing users are NEVER affected — seeding only runs when no config exists.
 
-    const seedAgentConfig = this.node.tryGetContext('seedAgentConfig') === 'true';
     const agentConfigPath = path.join(__dirname, '../../agent-config');
     const agentConfigYamlPath = path.join(agentConfigPath, 'config.yaml');
     const fs = require('fs');
 
-    if (seedAgentConfig && fs.existsSync(agentConfigYamlPath)) {
+    if (fs.existsSync(agentConfigYamlPath)) {
       // Validate config.yaml at deploy time — halts deployment on schema errors
       // Parse YAML at synth time using Python (available on build host) and pass as JSON
       const configYamlContent = fs.readFileSync(agentConfigYamlPath, 'utf-8');
