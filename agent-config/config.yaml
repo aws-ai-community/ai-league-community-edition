@@ -31,7 +31,7 @@ supervisor:
     - "Pathfinding Specialist"
     - "Code Calculator"
   memory: "GameMemory"
-  guardrail: "Content Safety"
+  guardrail: "ContentSafety"
 
 subAgents:
   - name: "Pathfinding Specialist"
@@ -84,7 +84,7 @@ memory:
   description: "Stores game navigation history and outcomes for learning across sessions"
 
 guardrail:
-  name: "Content Safety"
+  name: "ContentSafety"
   description: "Basic content safety guardrail with one example of each filter type"
   blockedInputMessaging: "I can only help with game-related requests."
   blockedOutputsMessaging: "I can only provide game-related responses."
