@@ -34,7 +34,18 @@ rm -rf agent-config/config.yaml agent-config/tools/
 cp -r agent-config/examples/default/* agent-config/
 ```
 
-Then run `cdk deploy` and delete your stack's DynamoDB data (or deploy fresh) to re-seed.
+Then deploy the config to your live environment:
+
+```bash
+# Option 1: Seed config for existing deployment (nuke and pave):
+npm run seed-config -- --profile <your-aws-profile>
+
+# Option 2: Full CDK deploy with config seeding (first deploy or rebuild):
+npm run deploy:seed
+
+# Normal CDK deploy (does NOT touch agent config):
+npm run deploy
+```
 
 ## Key Rules
 
