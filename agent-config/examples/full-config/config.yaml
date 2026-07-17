@@ -31,7 +31,7 @@ supervisor:
     - "Pathfinding Specialist"
     - "Code Calculator"
   memory: "GameMemory"
-  guardrail: "ContentSafety"
+  guardrail: "GameGuardrail"
 
 subAgents:
   - name: "Pathfinding Specialist"
@@ -84,10 +84,10 @@ memory:
   description: "Stores game navigation history and outcomes for learning across sessions"
 
 guardrail:
-  name: "ContentSafety"
-  description: "Basic content safety guardrail with one example of each filter type"
-  blockedInputMessaging: "I can only help with game-related requests."
-  blockedOutputsMessaging: "I can only provide game-related responses."
+  name: "GameGuardrail"
+  description: "Example guardrail demonstrating how to block specific topics in game responses"
+  blockedInputMessaging: "I cannot help with that topic."
+  blockedOutputsMessaging: "I cannot respond about that topic."
   contentFilters:
     - type: "SEXUAL"
       inputStrength: "HIGH"
@@ -108,11 +108,11 @@ guardrail:
       inputStrength: "HIGH"
       outputStrength: "NONE"
   denyTopics:
-    - name: "Off-topic requests"
-      definition: "Requests completely unrelated to the AI League dungeon game, such as homework help, general knowledge questions, or non-game tasks"
+    - name: "EdiblePlants"
+      definition: "Any discussion about edible plants, foraging, wild foods, or which plants are safe to eat"
       inputAction: "BLOCK"
       outputAction: "BLOCK"
       examples:
-        - "Help me with my math homework"
-        - "Write me an essay about history"
-        - "What is the capital of France"
+        - "Which plants in the forest are edible"
+        - "Can I eat the berries on this bush"
+        - "Tell me about foraging for wild foods"

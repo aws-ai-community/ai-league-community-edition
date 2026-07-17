@@ -31,7 +31,7 @@ supervisor:
     - "Pathfinding Specialist"
     - "Code Calculator"
   memory: "GameMemory"
-  guardrail: "ContentSafety"
+  guardrail: null
 
 subAgents:
   - name: "Pathfinding Specialist"
@@ -83,36 +83,4 @@ memory:
   name: "GameMemory"
   description: "Stores game navigation history and outcomes for learning across sessions"
 
-guardrail:
-  name: "ContentSafety"
-  description: "Basic content safety guardrail with one example of each filter type"
-  blockedInputMessaging: "I can only help with game-related requests."
-  blockedOutputsMessaging: "I can only provide game-related responses."
-  contentFilters:
-    - type: "SEXUAL"
-      inputStrength: "HIGH"
-      outputStrength: "HIGH"
-    - type: "VIOLENCE"
-      inputStrength: "MEDIUM"
-      outputStrength: "MEDIUM"
-    - type: "HATE"
-      inputStrength: "HIGH"
-      outputStrength: "HIGH"
-    - type: "INSULTS"
-      inputStrength: "MEDIUM"
-      outputStrength: "MEDIUM"
-    - type: "MISCONDUCT"
-      inputStrength: "MEDIUM"
-      outputStrength: "MEDIUM"
-    - type: "PROMPT_ATTACK"
-      inputStrength: "HIGH"
-      outputStrength: "NONE"
-  denyTopics:
-    - name: "Off-topic requests"
-      definition: "Requests completely unrelated to the AI League dungeon game, such as homework help, general knowledge questions, or non-game tasks"
-      inputAction: "BLOCK"
-      outputAction: "BLOCK"
-      examples:
-        - "Help me with my math homework"
-        - "Write me an essay about history"
-        - "What is the capital of France"
+
