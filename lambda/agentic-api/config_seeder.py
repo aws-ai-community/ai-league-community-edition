@@ -524,10 +524,16 @@ def _create_guardrail(guardrail_config: dict) -> tuple[Optional[str], Optional[s
         if content_filters:
             create_kwargs["contentPolicyConfig"] = {"filtersConfig": content_filters}
 
-        # Deny topics
+        # Deny topics — inject required "type": "DENY" field if not present
         deny_topics = guardrail_config.get("denyTopics")
         if deny_topics:
-            create_kwargs["topicPolicyConfig"] = {"topicsConfig": deny_topics}
+            topics_config = []
+            for topic in deny_topics:
+                t = dict(topic)
+                if "type" not in t:
+                    t["type"] = "DENY"
+                topics_config.append(t)
+            create_kwargs["topicPolicyConfig"] = {"topicsConfig": topics_config}
 
         resp = client.create_guardrail(**create_kwargs)
         guardrail_id = resp.get("guardrailId", "")

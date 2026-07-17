@@ -30,10 +30,7 @@ supervisor:
   subAgents:
     - "Pathfinding Specialist"
     - "Code Calculator"
-  tools:
-    - "Pathfinder"
-    - "CodeCalculator"
-  memory: "Game Memory"
+  memory: "GameMemory"
   guardrail: "Content Safety"
 
 subAgents:
@@ -83,7 +80,7 @@ tools:
     sourceDir: "tools/CodeCalculator"
 
 memory:
-  name: "Game Memory"
+  name: "GameMemory"
   description: "Stores game navigation history and outcomes for learning across sessions"
 
 guardrail:

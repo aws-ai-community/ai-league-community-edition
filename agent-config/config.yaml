@@ -1,16 +1,16 @@
-# AI League Agent Configuration Seed
-# ==================================
-# This file defines the initial agent setup applied on first user login after deployment.
-# If this file is absent, the system uses built-in hardcoded defaults.
-# See agent-config/examples/ for annotated templates.
+# Full Configuration Example
+# ===========================
+# Copy this entire folder's contents into agent-config/ to use it.
+# Includes: supervisor, 2 sub-agents, 2 tools, memory, and a guardrail.
 
 supervisor:
-  name: "My Agent"
+  name: "Dungeon Master"
   systemPrompt: |
     You are the Dungeon Game Orchestrator, coordinating specialist agents.
 
     SPECIALIST AGENTS AVAILABLE:
     **Pathfinding Specialist** - Use for all pathfinding/navigation tasks
+    **Code Calculator** - Use for mathematical calculations and scoring analysis
 
     DELEGATION RULES:
     1. **Pathfinding Tasks**: Always delegate to Pathfinding_Specialist
@@ -18,17 +18,20 @@ supervisor:
        - Do NOT summarize, shorten, or reformat the input
        - Return ONLY the path array from the specialist result
 
-    2. **Simple Tasks**: Handle directly (basic math, quick facts)
+    2. **Calculation Tasks**: Delegate to Code_Calculator
+       - Use for any math, scoring, or analysis questions
+
+    3. **Simple Tasks**: Handle directly (basic facts, greetings)
 
     RESPONSE FORMAT:
     - For pathfinding: Return ONLY the path array like ["right","down","left"]
+    - For calculations: Return the calculated result
     - No explanations, no thinking tags, no other text
   subAgents:
     - "Pathfinding Specialist"
-  tools:
-    - "Pathfinder"
-  memory: null
-  guardrail: null
+    - "Code Calculator"
+  memory: "GameMemory"
+  guardrail: "Content Safety"
 
 subAgents:
   - name: "Pathfinding Specialist"
@@ -47,6 +50,69 @@ subAgents:
     tools:
       - "Pathfinder"
 
+  - name: "Code Calculator"
+    systemPrompt: |
+      You are the Code Calculator specialist.
+
+      Your job is to write Python code that performs the requested calculation,
+      then send it to the CodeCalculator tool for execution.
+
+      RULES:
+      1. Write complete Python code that prints the final answer using print()
+      2. Send the code to the calculate tool via the "code" parameter
+      3. Return ONLY the result from the tool output
+      4. For complex calculations, write clear step-by-step code
+
+      EXAMPLE:
+      If asked "what is 15 * 23 + 7?", send this code:
+        result = 15 * 23 + 7
+        print(result)
+
+      Then return just: 352
+    tools:
+      - "CodeCalculator"
+
 tools:
   - name: "Pathfinder"
     sourceDir: "tools/Pathfinder"
+
+  - name: "CodeCalculator"
+    sourceDir: "tools/CodeCalculator"
+
+memory:
+  name: "GameMemory"
+  description: "Stores game navigation history and outcomes for learning across sessions"
+
+guardrail:
+  name: "Content Safety"
+  description: "Basic content safety guardrail with one example of each filter type"
+  blockedInputMessaging: "I can only help with game-related requests."
+  blockedOutputsMessaging: "I can only provide game-related responses."
+  contentFilters:
+    - type: "SEXUAL"
+      inputStrength: "HIGH"
+      outputStrength: "HIGH"
+    - type: "VIOLENCE"
+      inputStrength: "MEDIUM"
+      outputStrength: "MEDIUM"
+    - type: "HATE"
+      inputStrength: "HIGH"
+      outputStrength: "HIGH"
+    - type: "INSULTS"
+      inputStrength: "MEDIUM"
+      outputStrength: "MEDIUM"
+    - type: "MISCONDUCT"
+      inputStrength: "MEDIUM"
+      outputStrength: "MEDIUM"
+    - type: "PROMPT_ATTACK"
+      inputStrength: "HIGH"
+      outputStrength: "NONE"
+  denyTopics:
+    - name: "Off-topic requests"
+      definition: "Requests completely unrelated to the AI League dungeon game, such as homework help, general knowledge questions, or non-game tasks"
+      inputAction: "BLOCK"
+      outputAction: "BLOCK"
+      examples:
+        - "Help me with my math homework"
+        - "Write me an essay about history"
+        - "What is the capital of France"
