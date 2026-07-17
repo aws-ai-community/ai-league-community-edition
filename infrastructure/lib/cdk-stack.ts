@@ -960,8 +960,6 @@ def handler(event, context):
     // ========================================================================
     // Agent Configuration Seeding (Optional)
     // ========================================================================
-    // Agent Configuration Seeding (Optional)
-    // ========================================================================
     // If agent-config/config.yaml exists in the repo, deploy it to S3 so the
     // agentic-api Lambda can seed user configuration from it on first login.
     // If the folder doesn't exist, no resources are created (no error).
@@ -973,12 +971,11 @@ def handler(event, context):
 
     if (fs.existsSync(agentConfigYamlPath)) {
       // Validate config.yaml at deploy time — halts deployment on schema errors
-      // Parse YAML at synth time using Python (available on build host) and pass as JSON
+      // Parse YAML at synth time using js-yaml (npm package, no external deps)
+      const jsYaml = require('js-yaml');
       const configYamlContent = fs.readFileSync(agentConfigYamlPath, 'utf-8');
-      const configJson = execSync(
-        `python3 -c "import sys, json, yaml; print(json.dumps(yaml.safe_load(sys.stdin.read())))"`,
-        { input: configYamlContent, encoding: 'utf-8' }
-      ).trim();
+      const parsedConfig = jsYaml.load(configYamlContent);
+      const configJson = JSON.stringify(parsedConfig);
 
       const validateConfigFn = new lambda.Function(this, 'ValidateAgentConfigFunction', {
         runtime: lambda.Runtime.PYTHON_3_12,

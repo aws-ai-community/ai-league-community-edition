@@ -23,6 +23,11 @@ from boto3.dynamodb.conditions import Key
 
 from config_validator import ConfigValidationError, validate_config
 
+# WARNING: Do NOT import from agent_config_handlers in this module.
+# That module instantiates DynamoDB resources at module level, which would
+# create boto3 sessions using ambient credentials — breaking --profile auth
+# when this module is imported by scripts/seed-config.py.
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -184,6 +189,12 @@ def seed_user_config(user_id: str) -> dict:
                 msg = f"Failed to write DynamoDB for tool '{tool_name}': {e}"
                 logger.error(msg)
                 failures.append(msg)
+                # Compensating delete: remove the Lambda we just created to avoid orphans
+                try:
+                    boto3.client("lambda").delete_function(FunctionName=function_name)
+                    logger.info("Compensating delete: removed orphaned Lambda %s", function_name)
+                except Exception:
+                    logger.warning("Failed to clean up orphaned Lambda %s", function_name)
 
     # --- Phase 2: Create Memory tool ---
     memory_config = config.get("memory")

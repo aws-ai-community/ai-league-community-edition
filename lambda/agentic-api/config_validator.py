@@ -129,7 +129,7 @@ def validate_config(config: dict[str, Any]) -> list[str]:
 
     # --- Cross-reference validation for supervisor ---
     if supervisor and isinstance(supervisor, dict):
-        _validate_supervisor_references(supervisor, defined_tool_names, defined_subagent_names, errors)
+        _validate_supervisor_references(supervisor, defined_tool_names, defined_subagent_names, config, errors)
 
     # --- Validate memory ---
     memory = config.get("memory")
@@ -185,9 +185,10 @@ def _validate_supervisor_references(
     supervisor: dict,
     defined_tool_names: set[str],
     defined_subagent_names: set[str],
+    config: dict,
     errors: list[str],
 ) -> None:
-    """Validate supervisor cross-references to tools and sub-agents."""
+    """Validate supervisor cross-references to tools, sub-agents, memory, and guardrail."""
     # Sub-agent references
     sub_agent_refs = supervisor.get("subAgents", [])
     if sub_agent_refs and isinstance(sub_agent_refs, list):
@@ -202,13 +203,27 @@ def _validate_supervisor_references(
             if ref not in defined_tool_names:
                 errors.append(f"supervisor.tools: references undefined tool '{ref}'")
 
-    # Memory reference
+    # Memory reference — must match the memory section's name
     memory_ref = supervisor.get("memory")
-    # Memory reference is validated by checking the memory section exists (done elsewhere)
+    if memory_ref and isinstance(memory_ref, str):
+        memory_section = config.get("memory")
+        if not memory_section or not isinstance(memory_section, dict):
+            errors.append(f"supervisor.memory: references '{memory_ref}' but no memory section is defined")
+        elif memory_section.get("name") != memory_ref:
+            errors.append(
+                f"supervisor.memory: references '{memory_ref}' but memory section has name '{memory_section.get('name')}'"
+            )
 
-    # Guardrail reference
+    # Guardrail reference — must match the guardrail section's name
     guardrail_ref = supervisor.get("guardrail")
-    # Guardrail reference is validated by checking the guardrail section exists (done elsewhere)
+    if guardrail_ref and isinstance(guardrail_ref, str):
+        guardrail_section = config.get("guardrail")
+        if not guardrail_section or not isinstance(guardrail_section, dict):
+            errors.append(f"supervisor.guardrail: references '{guardrail_ref}' but no guardrail section is defined")
+        elif guardrail_section.get("name") != guardrail_ref:
+            errors.append(
+                f"supervisor.guardrail: references '{guardrail_ref}' but guardrail section has name '{guardrail_section.get('name')}'"
+            )
 
 
 def _validate_guardrail(guardrail: dict, errors: list[str], warnings: list[str]) -> None:
@@ -245,14 +260,18 @@ def _validate_guardrail(guardrail: dict, errors: list[str], warnings: list[str])
                     f"guardrail.contentFilters[{i}]: invalid type '{cf_type}'. "
                     f"Must be one of: {', '.join(sorted(VALID_CONTENT_FILTER_TYPES))}"
                 )
-            input_strength = cf.get("inputStrength", "")
-            if input_strength and input_strength not in VALID_STRENGTHS:
+            input_strength = cf.get("inputStrength")
+            if input_strength is None:
+                errors.append(f"guardrail.contentFilters[{i}]: missing required field 'inputStrength'")
+            elif input_strength not in VALID_STRENGTHS:
                 errors.append(
                     f"guardrail.contentFilters[{i}]: invalid inputStrength '{input_strength}'. "
                     f"Must be one of: {', '.join(sorted(VALID_STRENGTHS))}"
                 )
-            output_strength = cf.get("outputStrength", "")
-            if output_strength and output_strength not in VALID_STRENGTHS:
+            output_strength = cf.get("outputStrength")
+            if output_strength is None:
+                errors.append(f"guardrail.contentFilters[{i}]: missing required field 'outputStrength'")
+            elif output_strength not in VALID_STRENGTHS:
                 errors.append(
                     f"guardrail.contentFilters[{i}]: invalid outputStrength '{output_strength}'. "
                     f"Must be one of: {', '.join(sorted(VALID_STRENGTHS))}"
