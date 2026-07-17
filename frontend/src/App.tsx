@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import AppLayout from '@cloudscape-design/components/app-layout';
 import Container from '@cloudscape-design/components/container';
@@ -20,14 +20,16 @@ import { AuthProvider, useAuth } from './contexts/AuthProvider';
 import { ProfileProvider, useProfile } from './contexts/ProfileContext';
 import NavigationPanel from './components/NavigationPanel';
 import { ProfilePage } from './components/ProfilePage';
-import MapBuilderPage from './components/map-builder/MapBuilderPage';
-import GameplayPage from './components/agentic/GameplayPage';
-import LeaderboardPage from './components/agentic/LeaderboardPage';
-import SubmissionHistoryPage from './components/agentic/SubmissionHistoryPage';
-import ConfigurationPage from './components/agentic/ConfigurationPage';
-import AgentBuilderPage from './components/agentic/AgentBuilderPage';
-import FineTuningPage from './components/agentic/FineTuningPage';
 import { getConfig } from './config';
+
+// Lazy-loaded route components for code splitting
+const MapBuilderPage = lazy(() => import('./components/map-builder/MapBuilderPage'));
+const GameplayPage = lazy(() => import('./components/agentic/GameplayPage'));
+const LeaderboardPage = lazy(() => import('./components/agentic/LeaderboardPage'));
+const SubmissionHistoryPage = lazy(() => import('./components/agentic/SubmissionHistoryPage'));
+const ConfigurationPage = lazy(() => import('./components/agentic/ConfigurationPage'));
+const AgentBuilderPage = lazy(() => import('./components/agentic/AgentBuilderPage'));
+const FineTuningPage = lazy(() => import('./components/agentic/FineTuningPage'));
 
 function LoginPage() {
   const [email, setEmail] = useState('');
@@ -187,18 +189,20 @@ function AuthenticatedApp() {
         navigation={<NavigationPanel />}
         toolsHide={true}
         content={
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/map-builder" element={<MapBuilderPage />} />
-            <Route path="/gameplay" element={<GameplayPage />} />
-            <Route path="/leaderboard" element={<LeaderboardPage />} />
-            <Route path="/submission-history" element={<SubmissionHistoryPage />} />
-            <Route path="/configuration" element={<ConfigurationPage />} />
-            <Route path="/agent-builder" element={<AgentBuilderPage />} />
-            <Route path="/fine-tuning" element={<FineTuningPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<Box margin={{ top: 'l' }} textAlign="center"><Box variant="p">Loading...</Box></Box>}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/map-builder" element={<MapBuilderPage />} />
+              <Route path="/gameplay" element={<GameplayPage />} />
+              <Route path="/leaderboard" element={<LeaderboardPage />} />
+              <Route path="/submission-history" element={<SubmissionHistoryPage />} />
+              <Route path="/configuration" element={<ConfigurationPage />} />
+              <Route path="/agent-builder" element={<AgentBuilderPage />} />
+              <Route path="/fine-tuning" element={<FineTuningPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         }
       />
     </ProfileProvider>

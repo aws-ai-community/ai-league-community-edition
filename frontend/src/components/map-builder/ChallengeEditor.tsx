@@ -9,6 +9,7 @@ import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import { TILE_METADATA, TileKey } from './tileData';
 import { getQuestionsForTileType, QuestionBankEntry, computeC3Answer, isMapDependentAnswer } from '../../data/questionBank';
+import { generateChallenge } from '../../services/graphqlClient';
 
 export interface ChallengeAssignment {
   type: string;
@@ -106,7 +107,6 @@ export default function ChallengeEditor({ challenges, onChallengesChange, grid }
         return;
       }
 
-      const { generateChallenge } = await import('../../services/graphqlClient');
       const result = await generateChallenge(tileType, tileType === 'c6' ? grid : undefined);
       const gen = result.GenerateChallenge;
 

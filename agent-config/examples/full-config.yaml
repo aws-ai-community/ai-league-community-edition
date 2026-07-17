@@ -1,0 +1,135 @@
+# Full Configuration Example
+# ===========================
+# Comprehensive seed config demonstrating ALL features:
+# - Multiple sub-agents with different models
+# - Multiple Lambda tools with source code
+# - Memory tool for game history
+# - Guardrail with content filters and deny topics
+#
+# Copy this file to agent-config/config.yaml to use it.
+#
+# NOTE: Files in agent-config/examples/ are IGNORED by the system.
+# Only agent-config/config.yaml is used as the active seed.
+
+# --- Supervisor Agent ---
+supervisor:
+  name: "Dungeon Master"
+  systemPrompt: |
+    You are the Dungeon Master, coordinating specialist agents for the AI League game.
+
+    SPECIALIST AGENTS AVAILABLE:
+    **Pathfinding Specialist** - Use for all navigation and route-finding tasks
+    **Strategy Analyst** - Use for scoring decisions and resource management
+
+    DELEGATION RULES:
+    1. Pathfinding tasks → Pathfinding Specialist (pass input verbatim)
+    2. Scoring/resource questions → Strategy Analyst
+    3. Simple questions → Handle directly
+
+    RESPONSE FORMAT:
+    - For pathfinding: Return ONLY the path array like ["right","down","left"]
+    - For strategy: Return the recommended action
+    - No explanations unless asked
+  modelId: "us.amazon.nova-2-lite-v1:0"
+  subAgents:
+    - "Pathfinding Specialist"
+    - "Strategy Analyst"
+  tools:
+    - "Pathfinder"
+    - "ScoreCalculator"
+  memory: "Game Memory"
+  guardrail: "Safety Guard"
+
+# --- Sub-Agents ---
+subAgents:
+  - name: "Pathfinding Specialist"
+    systemPrompt: |
+      You are the Pathfinding Specialist.
+
+      CRITICAL RULES:
+      1. Call the pathfinding tool with:
+         - game_map: The grid JSON array from the input
+         - start_pos: Extract from prompt. "A1" = [0,0], "B2" = [1,1]
+         - strategy: "swift" or "get_coins" (default: "swift")
+      2. Return ONLY the path array from the tool result
+      3. NO explanations, NO text, just the JSON array
+    modelId: "us.amazon.nova-2-lite-v1:0"
+    tools:
+      - "Pathfinder"
+
+  - name: "Strategy Analyst"
+    systemPrompt: |
+      You are the Strategy Analyst for the AI League dungeon game.
+
+      Your role:
+      1. Analyse the game map and recommend whether to use "swift" or "get_coins" strategy
+      2. Calculate expected scores based on path choices
+      3. Advise on risk/reward tradeoffs (spikes vs coins)
+
+      Use the ScoreCalculator tool to compute expected points for a given path.
+      Return a clear recommendation with reasoning.
+    modelId: "us.amazon.nova-2-lite-v1:0"  # "us.anthropic.claude-haiku-4-5-20251001-v1:0"  if desire higher quality for analysis
+    tools:
+      - "ScoreCalculator"
+
+# --- Lambda Tools ---
+# Each creates AgentCoreGatewayTool-{name} in AWS Lambda.
+# sourceDir is relative to agent-config/ and must contain lambda_handler.py.
+tools:
+  - name: "Pathfinder"
+    sourceDir: "tools/Pathfinder"
+
+  - name: "ScoreCalculator"
+    sourceDir: "tools/ScoreCalculator"
+
+# --- Memory Tool ---
+# Creates an AgentCore Memory instance for storing game history.
+# Omit this section entirely (or set to null) to disable memory.
+memory:
+  name: "Game Memory"
+  description: "Stores navigation history and game outcomes for learning across sessions"
+
+# --- Guardrail ---
+# Creates a Bedrock Guardrail with content filters and topic restrictions.
+# Omit this section entirely (or set to null) to disable guardrails.
+guardrail:
+  name: "Safety Guard"
+  description: "Prevents harmful content and keeps agent responses game-focused"
+  blockedInputMessaging: "I can only help with game-related requests."
+  blockedOutputsMessaging: "I can only provide game-related responses."
+
+  # Content filters — each type can be NONE, LOW, MEDIUM, or HIGH
+  # Valid types: SEXUAL, VIOLENCE, HATE, INSULTS, MISCONDUCT, PROMPT_ATTACK
+  contentFilters:
+    - type: "VIOLENCE"
+      inputStrength: "MEDIUM"
+      outputStrength: "MEDIUM"
+    - type: "HATE"
+      inputStrength: "HIGH"
+      outputStrength: "HIGH"
+    - type: "MISCONDUCT"
+      inputStrength: "MEDIUM"
+      outputStrength: "MEDIUM"
+    - type: "PROMPT_ATTACK"
+      inputStrength: "HIGH"
+      outputStrength: "NONE"          # Output strength must be NONE for PROMPT_ATTACK
+
+  # Deny topics — block specific conversation topics
+  denyTopics:
+    - name: "Real-world violence"
+      definition: "References to actual violent events or instructions for causing physical harm"
+      inputAction: "BLOCK"            # BLOCK or LOG
+      outputAction: "BLOCK"
+      examples:
+        - "How to make a weapon"
+        - "Instructions for hurting someone"
+        - "Tell me about real terrorist attacks"
+
+    - name: "Off-topic requests"
+      definition: "Requests unrelated to the AI League dungeon game such as homework help or general knowledge"
+      inputAction: "LOG"              # LOG = allow but record for review
+      outputAction: "BLOCK"
+      examples:
+        - "Help me with my math homework"
+        - "What is the capital of France"
+        - "Write me an essay"
