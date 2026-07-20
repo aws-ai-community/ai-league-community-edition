@@ -174,7 +174,13 @@ def nuke_user_config(session, table_name, user_id, config):
             deleted_counts["lambda"] += 1
 
         # Delete Bedrock Guardrails (actual AWS resource)
+        # Skip if the new config still defines a guardrail with the same name
         elif sk.startswith("GUARDRAIL#"):
+            guardrail_name = item.get("name", "")
+            new_guardrail = config.get("guardrail")
+            if new_guardrail and isinstance(new_guardrail, dict) and new_guardrail.get("name") == guardrail_name:
+                print(f"    Keeping Guardrail: {guardrail_name} (same name in new config)")
+                continue  # Don't delete DynamoDB record or AWS resource
             guardrail_id = item.get("guardrailId", "")
             if guardrail_id:
                 try:
@@ -184,16 +190,14 @@ def nuke_user_config(session, table_name, user_id, config):
                     print(f"    WARNING: Failed to delete Guardrail {guardrail_id}: {e}")
             deleted_counts["guardrail"] += 1
 
-        # Delete AgentCore Memory (actual AWS resource)
+        # Skip deleting Memory if the new config still defines one with the same name
+        # (avoids "already exists" error on re-create since AgentCore doesn't allow duplicate names)
         elif sk.startswith("MEMORY#"):
-            memory_id = item.get("memoryId", "")
-            if memory_id:
-                try:
-                    agentcore = session.client("bedrock-agentcore-control")
-                    agentcore.delete_memory(memoryId=memory_id)
-                    print(f"    Deleted Memory: {memory_id}")
-                except Exception as e:
-                    print(f"    WARNING: Failed to delete Memory {memory_id}: {e}")
+            memory_name = item.get("name", "")
+            new_memory = config.get("memory")
+            if new_memory and isinstance(new_memory, dict) and new_memory.get("name") == memory_name:
+                print(f"    Keeping Memory: {memory_name} (same name in new config)")
+                continue  # Don't delete DynamoDB record or AWS resource
             deleted_counts["memory"] += 1
 
         elif sk.startswith("SUBAGENT#"):
@@ -272,13 +276,40 @@ def seed_config(session, table_name, bucket_name, lambda_tool_role_arn, user_id,
         sys.exit(1)
 
 
+def generate_gateway_schemas(session, config):
+    """Invoke the agentic-api Lambda to generate MCP Gateway targets for each tool."""
+    lambda_client = session.client("lambda")
+    tools = config.get("tools") or []
+
+    for tool in tools:
+        tool_name = tool["name"]
+        payload = {
+            "info": {"fieldName": "RegenerateToolSchema"},
+            "identity": {"claims": {"cognito:username": "system"}},
+            "arguments": {"name": tool_name},
+        }
+        try:
+            resp = lambda_client.invoke(
+                FunctionName="ai-league-agentic-api",
+                InvocationType="Event",  # async — don't wait for completion
+                Payload=json.dumps(payload),
+            )
+            status = resp.get("StatusCode", 0)
+            print(f"    Triggered schema generation for AgentCoreGatewayTool-{tool_name} (status: {status})")
+        except Exception as e:
+            print(f"    WARNING: Failed to trigger schema for {tool_name}: {e}")
+
+    if tools:
+        print(f"  Schema generation triggered for {len(tools)} tool(s). May take 10-20s to complete.")
+
+
 def main():
     args = get_args()
 
     print("=== Agent Configuration Seed (Nuke and Pave) ===\n")
 
     # Step 1: Load and validate config
-    print("[1/5] Validating config.yaml...")
+    print("[1/6] Validating config.yaml...")
     config = load_and_validate_config()
     print("  Config is valid.\n")
 
@@ -287,7 +318,7 @@ def main():
         return
 
     # Step 2: Set up AWS session and get stack info
-    print("[2/5] Reading stack resources...")
+    print("[2/6] Reading stack resources...")
     session = get_session(args.profile, args.region)
     stack_info = get_stack_outputs(session, args.stack_name)
 
@@ -304,19 +335,19 @@ def main():
     # Step 3: Resolve target user
     if args.user_id:
         user_id = args.user_id
-        print(f"[3/5] Using provided user ID: {user_id}\n")
+        print(f"[3/6] Using provided user ID: {user_id}\n")
     else:
-        print("[3/5] Looking up admin user...")
+        print("[3/6] Looking up admin user...")
         user_id = get_admin_user_sub(session, stack_info["user_pool_id"])
         print(f"  Admin user sub: {user_id}\n")
 
     # Step 4: Nuke existing config
-    print("[4/5] Deleting existing configuration...")
+    print("[4/6] Deleting existing configuration...")
     nuke_user_config(session, stack_info["table_name"], user_id, config)
     print()
 
     # Step 5: Upload to S3 and re-seed
-    print("[5/5] Uploading config and seeding...")
+    print("[5/6] Uploading config and seeding...")
     upload_config_to_s3(session, stack_info["bucket_name"], config)
     seed_config(
         session,
@@ -326,6 +357,11 @@ def main():
         user_id,
         config,
     )
+    print()
+
+    # Step 6: Generate MCP Gateway schemas for each tool
+    print("[6/6] Generating MCP Gateway schemas...")
+    generate_gateway_schemas(session, config)
     print("\n=== Done! Refresh the Agent Builder page to see the new config. ===")
 
 

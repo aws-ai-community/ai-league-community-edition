@@ -164,6 +164,18 @@ def seed_user_config(user_id: str) -> dict:
             failures.append(msg)
             continue  # Skip DynamoDB write for this tool
 
+        # Generate MCP Gateway schema/target for this tool
+        # Only runs inside Lambda (where GATEWAY_URL env var is set).
+        # When called from scripts/seed-config.py, this silently skips —
+        # the script handles gateway generation separately in its own step.
+        if os.environ.get("GATEWAY_URL"):
+            try:
+                from agent_config_handlers import _auto_update_gateway_schema
+                _auto_update_gateway_schema(function_name, user_id=user_id)
+                logger.info("Generated gateway schema for %s", function_name)
+            except Exception as e:
+                logger.warning("Failed to generate gateway schema for %s: %s (tool still usable after next code update)", function_name, e)
+
         # Write DynamoDB record
         try:
             table.put_item(
@@ -204,33 +216,42 @@ def seed_user_config(user_id: str) -> dict:
         memory_name = memory_config["name"]
         memory_tool_id = _deterministic_id(user_id, "memory", memory_name)
 
+        # Check if memory record already exists (kept by nuke step) — skip if so
         try:
-            memory_id = _create_memory(memory_config)
-            table.put_item(
-                Item={
-                    "userId": user_id,
-                    "sk": f"MEMORY#{memory_tool_id}",
-                    "toolId": memory_tool_id,
-                    "name": memory_name,
-                    "memoryId": memory_id or "",
-                    "description": memory_config.get("description", ""),
-                    "status": "ACTIVE",
-                    "gsi1pk": f"USER#{user_id}",
-                    "gsi1sk": f"MEMORY#{now}",
-                    "createdAt": now,
-                    "updatedAt": now,
-                },
-                ConditionExpression="attribute_not_exists(sk)",
-            )
-        except Exception as e:
-            error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
-            if error_code == "ConditionalCheckFailedException":
-                logger.info("Memory record already exists — skipping")
+            existing = table.get_item(Key={"userId": user_id, "sk": f"MEMORY#{memory_tool_id}"})
+            if existing.get("Item"):
+                logger.info("Memory '%s' already exists in DynamoDB — skipping creation", memory_name)
+                # memory_tool_id is set, supervisor will reference it
             else:
-                msg = f"Failed to create memory tool: {e}"
-                logger.error(msg)
-                failures.append(msg)
-                memory_tool_id = None
+                raise KeyError("not found")  # trigger creation below
+        except (KeyError, Exception):
+            try:
+                memory_id = _create_memory(memory_config)
+                table.put_item(
+                    Item={
+                        "userId": user_id,
+                        "sk": f"MEMORY#{memory_tool_id}",
+                        "toolId": memory_tool_id,
+                        "name": memory_name,
+                        "memoryId": memory_id or "",
+                        "description": memory_config.get("description", ""),
+                        "status": "ACTIVE",
+                        "gsi1pk": f"USER#{user_id}",
+                        "gsi1sk": f"MEMORY#{now}",
+                        "createdAt": now,
+                        "updatedAt": now,
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as e:
+                error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+                if error_code == "ConditionalCheckFailedException":
+                    logger.info("Memory record already exists — skipping")
+                else:
+                    msg = f"Failed to create memory tool: {e}"
+                    logger.error(msg)
+                    failures.append(msg)
+                    memory_tool_id = None
 
     # --- Phase 3: Create Guardrail ---
     guardrail_config = config.get("guardrail")
@@ -240,34 +261,63 @@ def seed_user_config(user_id: str) -> dict:
         guardrail_name = guardrail_config["name"]
         guardrail_tool_id = _deterministic_id(user_id, "guardrail", guardrail_name)
 
+        # Check if guardrail record already exists (kept by nuke step)
+        existing_item = None
         try:
-            guardrail_id, full_sdk_response = _create_guardrail(guardrail_config)
-            table.put_item(
-                Item={
-                    "userId": user_id,
-                    "sk": f"GUARDRAIL#{guardrail_tool_id}",
-                    "toolId": guardrail_tool_id,
-                    "name": guardrail_name,
-                    "guardrailId": guardrail_id or "",
-                    "description": guardrail_config.get("description", ""),
-                    "status": "READY",
-                    "fullSDKResponse": full_sdk_response,
-                    "gsi1pk": f"USER#{user_id}",
-                    "gsi1sk": f"GUARDRAIL#{now}",
-                    "createdAt": now,
-                    "updatedAt": now,
-                },
-                ConditionExpression="attribute_not_exists(sk)",
-            )
-        except Exception as e:
-            error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
-            if error_code == "ConditionalCheckFailedException":
-                logger.info("Guardrail record already exists — skipping")
-            else:
-                msg = f"Failed to create guardrail: {e}"
-                logger.error(msg)
-                failures.append(msg)
-                guardrail_tool_id = None
+            existing_resp = table.get_item(Key={"userId": user_id, "sk": f"GUARDRAIL#{guardrail_tool_id}"})
+            existing_item = existing_resp.get("Item")
+        except Exception:
+            pass
+
+        if existing_item:
+            # Guardrail exists — update it with new config
+            existing_guardrail_id = existing_item.get("guardrailId", "")
+            if existing_guardrail_id:
+                try:
+                    _update_guardrail(existing_guardrail_id, guardrail_config)
+                    # Refresh the full SDK response in DynamoDB
+                    client = boto3.client("bedrock")
+                    full_sdk_response = _get_guardrail_sdk_response(client, existing_guardrail_id)
+                    table.update_item(
+                        Key={"userId": user_id, "sk": f"GUARDRAIL#{guardrail_tool_id}"},
+                        UpdateExpression="SET fullSDKResponse = :fsr, updatedAt = :now",
+                        ExpressionAttributeValues={":fsr": full_sdk_response, ":now": now},
+                    )
+                    logger.info("Updated existing guardrail '%s' with new config", guardrail_name)
+                except Exception as e:
+                    msg = f"Failed to update guardrail '{guardrail_name}': {e}"
+                    logger.error(msg)
+                    failures.append(msg)
+        else:
+            # Create new guardrail
+            try:
+                guardrail_id, full_sdk_response = _create_guardrail(guardrail_config)
+                table.put_item(
+                    Item={
+                        "userId": user_id,
+                        "sk": f"GUARDRAIL#{guardrail_tool_id}",
+                        "toolId": guardrail_tool_id,
+                        "name": guardrail_name,
+                        "guardrailId": guardrail_id or "",
+                        "description": guardrail_config.get("description", ""),
+                        "status": "READY",
+                        "fullSDKResponse": full_sdk_response,
+                        "gsi1pk": f"USER#{user_id}",
+                        "gsi1sk": f"GUARDRAIL#{now}",
+                        "createdAt": now,
+                        "updatedAt": now,
+                    },
+                    ConditionExpression="attribute_not_exists(sk)",
+                )
+            except Exception as e:
+                error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+                if error_code == "ConditionalCheckFailedException":
+                    logger.info("Guardrail record already exists — skipping")
+                else:
+                    msg = f"Failed to create guardrail: {e}"
+                    logger.error(msg)
+                    failures.append(msg)
+                    guardrail_tool_id = None
 
     # --- Phase 4: Create Sub-agents ---
     sub_agents_config = config.get("subAgents") or []
@@ -500,7 +550,8 @@ def _download_and_zip_source(source_dir: str) -> bytes:
 
 
 def _create_memory(memory_config: dict) -> Optional[str]:
-    """Create an AgentCore Memory instance. Returns memory_id or None."""
+    """Create an AgentCore Memory instance, or reuse existing one with same name.
+    Returns memory_id or None."""
     try:
         client = boto3.client("bedrock-agentcore-control")
         resp = client.create_memory(
@@ -510,12 +561,26 @@ def _create_memory(memory_config: dict) -> Optional[str]:
         )
         return resp.get("memoryId", "")
     except Exception as e:
+        error_msg = str(e)
+        # If memory already exists, look it up and reuse it
+        if "already exists" in error_msg:
+            logger.info("Memory '%s' already exists, looking up existing ID", memory_config["name"])
+            try:
+                client = boto3.client("bedrock-agentcore-control")
+                memories = client.list_memories()
+                for mem in memories.get("memories", []):
+                    if mem.get("name") == memory_config["name"]:
+                        logger.info("Reusing existing memory: %s", mem.get("memoryId"))
+                        return mem.get("memoryId", "")
+            except Exception as lookup_err:
+                logger.warning("Failed to look up existing memory: %s", lookup_err)
         logger.error("Failed to create AgentCore Memory: %s", e)
         raise
 
 
 def _create_guardrail(guardrail_config: dict) -> tuple[Optional[str], Optional[str]]:
-    """Create a Bedrock Guardrail. Returns (guardrail_id, full_sdk_response_json)."""
+    """Create a Bedrock Guardrail, or reuse existing one with same name.
+    Returns (guardrail_id, full_sdk_response_json)."""
     try:
         client = boto3.client("bedrock")
 
@@ -550,21 +615,77 @@ def _create_guardrail(guardrail_config: dict) -> tuple[Optional[str], Optional[s
         guardrail_id = resp.get("guardrailId", "")
 
         # Fetch full config for UI editing
-        full_sdk_response = None
-        if guardrail_id:
-            try:
-                get_resp = client.get_guardrail(guardrailIdentifier=guardrail_id)
-                full_sdk_response = json.dumps({
-                    "blockedInputMessaging": get_resp.get("blockedInputMessaging", ""),
-                    "blockedOutputsMessaging": get_resp.get("blockedOutputsMessaging", ""),
-                    "contentPolicy": get_resp.get("contentPolicy", {}),
-                    "topicPolicy": get_resp.get("topicPolicy", {}),
-                })
-            except Exception as get_err:
-                logger.warning("Failed to get guardrail config after creation: %s", get_err)
-
+        full_sdk_response = _get_guardrail_sdk_response(client, guardrail_id)
         return guardrail_id, full_sdk_response
 
     except Exception as e:
+        error_msg = str(e)
+        # If guardrail already exists with same name, look it up and reuse
+        if "already has this name" in error_msg or "ConflictException" in error_msg:
+            logger.info("Guardrail '%s' already exists, looking up existing ID", guardrail_config["name"])
+            try:
+                client = boto3.client("bedrock")
+                guardrails = client.list_guardrails()
+                for gr in guardrails.get("guardrails", []):
+                    if gr.get("name") == guardrail_config["name"]:
+                        guardrail_id = gr.get("id", "")
+                        logger.info("Reusing existing guardrail: %s", guardrail_id)
+                        full_sdk_response = _get_guardrail_sdk_response(client, guardrail_id)
+                        return guardrail_id, full_sdk_response
+            except Exception as lookup_err:
+                logger.warning("Failed to look up existing guardrail: %s", lookup_err)
         logger.error("Failed to create Bedrock Guardrail: %s", e)
         raise
+
+
+def _get_guardrail_sdk_response(client, guardrail_id: str) -> Optional[str]:
+    """Fetch guardrail config for UI editing purposes."""
+    if not guardrail_id:
+        return None
+    try:
+        get_resp = client.get_guardrail(guardrailIdentifier=guardrail_id)
+        return json.dumps({
+            "blockedInputMessaging": get_resp.get("blockedInputMessaging", ""),
+            "blockedOutputsMessaging": get_resp.get("blockedOutputsMessaging", ""),
+            "contentPolicy": get_resp.get("contentPolicy", {}),
+            "topicPolicy": get_resp.get("topicPolicy", {}),
+        })
+    except Exception as e:
+        logger.warning("Failed to get guardrail config: %s", e)
+        return None
+
+
+def _update_guardrail(guardrail_id: str, guardrail_config: dict) -> None:
+    """Update an existing Bedrock Guardrail with new config from YAML."""
+    client = boto3.client("bedrock")
+
+    update_kwargs: dict[str, Any] = {
+        "guardrailIdentifier": guardrail_id,
+        "name": guardrail_config["name"],
+        "description": guardrail_config.get("description", "Agent guardrail"),
+        "blockedInputMessaging": guardrail_config.get(
+            "blockedInputMessaging", "This input has been blocked."
+        ),
+        "blockedOutputsMessaging": guardrail_config.get(
+            "blockedOutputsMessaging", "This output has been blocked."
+        ),
+    }
+
+    # Content filters
+    content_filters = guardrail_config.get("contentFilters")
+    if content_filters:
+        update_kwargs["contentPolicyConfig"] = {"filtersConfig": content_filters}
+
+    # Deny topics — inject required "type": "DENY" field if not present
+    deny_topics = guardrail_config.get("denyTopics")
+    if deny_topics:
+        topics_config = []
+        for topic in deny_topics:
+            t = dict(topic)
+            if "type" not in t:
+                t["type"] = "DENY"
+            topics_config.append(t)
+        update_kwargs["topicPolicyConfig"] = {"topicsConfig": topics_config}
+
+    client.update_guardrail(**update_kwargs)
+    logger.info("Updated Bedrock Guardrail %s", guardrail_id)
