@@ -47,3 +47,5 @@ __pycache__/
 *.pyc
 .hypothesis/
 
+# Prevent user's agent config from being accidentally shared
+agent-config/
