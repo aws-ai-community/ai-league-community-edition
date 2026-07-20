@@ -234,9 +234,14 @@ export default function AgentBuilderPage() {
           setDefaultModelId(resolvedDefaultModelId);
         }
 
-        const [supervisorRes, subAgentsRes, lambdaToolsRes, memoryToolsRes, guardrailToolsRes, versionsRes, customModelsRes] =
+        // Load supervisor first — this triggers seeding for new users.
+        // Then load lists, which will find the seeded records.
+        const supervisorRes = await getSupervisorAgent();
+
+        if (cancelled) return;
+
+        const [subAgentsRes, lambdaToolsRes, memoryToolsRes, guardrailToolsRes, versionsRes, customModelsRes] =
           await Promise.all([
-            getSupervisorAgent(),
             listSubAgents(),
             listLambdaTools(),
             listMemoryTools(),

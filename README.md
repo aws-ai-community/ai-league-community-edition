@@ -208,10 +208,66 @@ After deployment, CDK prints:
    - **Email**: `admin@aileague.community`
    - **Password**: the `AdminPassword` from stack outputs
 
+## Agent Configuration Seeding
+
+The `agent-config/` folder lets you define your agent setup (supervisor, sub-agents, Lambda tools, memory, guardrails) in YAML. On first login after deployment, the system provisions everything automatically — no manual UI work needed.
+
+### How It Works
+
+1. `npm run deploy` uploads `agent-config/` to S3
+2. On first user login, the seeder reads the config and creates all resources
+3. Existing users are never affected — seeding only runs when no config exists in DynamoDB
+
+### Default Config
+
+Out of the box, `agent-config/config.yaml` ships with the simple default: one supervisor, one Pathfinding Specialist sub-agent, and the Pathfinder BFS tool.
+
+### Customising Your Config
+
+Edit `agent-config/config.yaml` and add tool source code under `agent-config/tools/<ToolName>/index.py`. See `agent-config/README.md` for the full YAML schema reference.
+
+Example configurations are provided in `agent-config/examples/`:
+- `default/` — simple pathfinder-only setup
+- `full-config/` — all features (2 sub-agents, 2 tools, memory, guardrail)
+
+Switch between them:
+```bash
+# Use full config:
+rm -rf agent-config/config.yaml agent-config/tools/
+cp -r agent-config/examples/full-config/* agent-config/
+
+# Reset to default:
+rm -rf agent-config/config.yaml agent-config/tools/
+cp -r agent-config/examples/default/* agent-config/
+```
+
+### Updating Config on an Existing Deployment
+
+After editing your YAML config, use the seed script to apply changes to a running environment without a full CDK deploy:
+
+```bash
+npm run seed-config -- --profile <your-aws-profile>
+```
+
+This deletes the existing agent config (Lambdas, guardrails, memory, sub-agents, supervisor) for the target user and re-creates everything from the YAML. Defaults to the CDK-created admin user. Use `--user-id <cognito-sub>` to target a different user.
+
+Use `--dry-run` to validate the config without making changes.
+
 ## Project Structure
 
 ```
 ai-league-community-edition/
+├── agent-config/             # Agent configuration seeding (YAML + tool source)
+│   ├── config.yaml           # Active seed config (deployed to S3)
+│   ├── tools/                # Lambda tool source code
+│   │   └── Pathfinder/
+│   │       └── index.py
+│   ├── examples/             # Reference configs (not deployed)
+│   │   ├── default/          # Simple pathfinder-only config
+│   │   └── full-config/      # All features: memory, guardrail, 2 agents, 2 tools
+│   └── README.md             # YAML schema reference
+├── scripts/                  # Utility scripts
+│   └── seed-config.py        # Nuke-and-pave config deployment
 ├── frontend/                 # Vite + React + CloudScape frontend
 │   ├── src/
 │   │   ├── App.tsx           # Root component with routing and auth gating

@@ -26,6 +26,7 @@ import boto3
 from boto3.dynamodb.conditions import Key
 
 import fine_tuning_handlers
+import config_seeder
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -148,13 +149,23 @@ def handle_get_supervisor_agent(arguments: dict, event: dict) -> dict:
 
     item = response.get("Item")
     if not item:
-        # First access — seed default pathfinder sub-agent and supervisor config
-        _seed_defaults_for_user(user_id)
-        return {
-            **DEFAULT_SUPERVISOR_CONFIG,
-            "userId": user_id,
-            "subAgents": [DEFAULT_PATHFINDER_SUBAGENT_ID],
-        }
+        # First access — try config-based seeding, fall back to hardcoded defaults
+        _seed_from_config_or_defaults(user_id)
+        # Re-read the seeded supervisor config from DynamoDB
+        try:
+            response = agent_configurations_table.get_item(
+                Key={"userId": user_id, "sk": "SUPERVISOR"}
+            )
+            item = response.get("Item")
+        except Exception:
+            pass
+        if not item:
+            # Fallback: return hardcoded defaults if seeding somehow didn't write
+            return {
+                **DEFAULT_SUPERVISOR_CONFIG,
+                "userId": user_id,
+                "subAgents": [DEFAULT_PATHFINDER_SUBAGENT_ID],
+            }
 
     return {
         "agentId": item.get("agentId"),
@@ -169,6 +180,37 @@ def handle_get_supervisor_agent(arguments: dict, event: dict) -> dict:
         "createdAt": item.get("createdAt"),
         "updatedAt": item.get("updatedAt"),
     }
+
+
+def _seed_from_config_or_defaults(user_id: str) -> None:
+    """Attempt to seed user configuration from S3 config files, fall back to hardcoded defaults.
+
+    If AGENT_CONFIG_BUCKET is set and config.yaml exists in S3, seeds from that config.
+    Otherwise (env var missing, S3 error, parse failure), falls back to _seed_defaults_for_user.
+
+    Requirements: 7.1, 7.2
+    """
+    bucket = os.environ.get("AGENT_CONFIG_BUCKET", "")
+    if not bucket:
+        logger.info("No AGENT_CONFIG_BUCKET set — using hardcoded defaults for user %s", user_id)
+        _seed_defaults_for_user(user_id)
+        return
+
+    try:
+        result = config_seeder.seed_user_config(user_id)
+        if result["success"]:
+            logger.info("Seeded user %s from config: %s", user_id, result["message"])
+            if result["failures"]:
+                logger.warning("Seed partial failures for %s: %s", user_id, result["failures"])
+        else:
+            logger.warning(
+                "Config seeding failed for user %s (%s) — falling back to defaults",
+                user_id, result["message"]
+            )
+            _seed_defaults_for_user(user_id)
+    except Exception as e:
+        logger.error("Unexpected error in config seeding for user %s: %s — falling back to defaults", user_id, e)
+        _seed_defaults_for_user(user_id)
 
 
 def _seed_defaults_for_user(user_id: str) -> None:

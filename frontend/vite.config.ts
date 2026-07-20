@@ -6,6 +6,9 @@ export default defineConfig({
   define: {
     global: 'globalThis',
   },
+  build: {
+    chunkSizeWarningLimit: 800,
+  },
   server: {
     port: 3000,
   },

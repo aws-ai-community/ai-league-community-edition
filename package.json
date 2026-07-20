@@ -12,6 +12,7 @@
     "build": "npm run build --workspaces",
     "test": "vitest run",
     "deploy": "cd infrastructure && npx cdk deploy --all",
+    "seed-config": "python3 scripts/seed-config.py",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {

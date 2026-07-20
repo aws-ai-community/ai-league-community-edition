@@ -10,6 +10,7 @@ import * as cr from 'aws-cdk-lib/custom-resources';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cf from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
@@ -167,7 +168,15 @@ export class CdkStack extends cdk.Stack {
       functionName: 'ai-league-agentic-api',
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/agentic-api')),
+      code: lambda.Code.fromAsset(path.join(__dirname, '../../lambda/agentic-api'), {
+        bundling: {
+          image: lambda.Runtime.PYTHON_3_12.bundlingImage,
+          command: [
+            'bash', '-c',
+            'pip install -r requirements.txt -t /asset-output && cp -au . /asset-output',
+          ],
+        },
+      }),
       timeout: cdk.Duration.minutes(5),
       memorySize: 512,
       environment: {
@@ -948,6 +957,150 @@ def handler(event, context):
     // Grant Lambda read access to generate pre-signed URLs for sample artifacts
     trainingArtifactsBucket.grantRead(agenticLambda);
 
+    // ========================================================================
+    // Agent Configuration Seeding (Optional)
+    // ========================================================================
+    // If agent-config/config.yaml exists in the repo, deploy it to S3 so the
+    // agentic-api Lambda can seed user configuration from it on first login.
+    // If the folder doesn't exist, no resources are created (no error).
+    // Existing users are NEVER affected — seeding only runs when no config exists.
+
+    const agentConfigPath = path.join(__dirname, '../../agent-config');
+    const agentConfigYamlPath = path.join(agentConfigPath, 'config.yaml');
+    const fs = require('fs');
+
+    if (fs.existsSync(agentConfigYamlPath)) {
+      // Validate config.yaml at deploy time — halts deployment on schema errors
+      // Parse YAML at synth time using js-yaml (npm package, no external deps)
+      const jsYaml = require('js-yaml');
+      const configYamlContent = fs.readFileSync(agentConfigYamlPath, 'utf-8');
+      const parsedConfig = jsYaml.load(configYamlContent);
+      const configJson = JSON.stringify(parsedConfig);
+
+      const validateConfigFn = new lambda.Function(this, 'ValidateAgentConfigFunction', {
+        runtime: lambda.Runtime.PYTHON_3_12,
+        handler: 'index.handler',
+        timeout: cdk.Duration.seconds(30),
+        code: lambda.Code.fromInline(`
+import json
+import cfnresponse
+
+VALID_CONTENT_FILTER_TYPES = {"SEXUAL", "VIOLENCE", "HATE", "INSULTS", "MISCONDUCT", "PROMPT_ATTACK"}
+VALID_STRENGTHS = {"NONE", "LOW", "MEDIUM", "HIGH"}
+VALID_TOPIC_ACTIONS = {"BLOCK", "LOG"}
+
+def handler(event, context):
+    try:
+        if event['RequestType'] == 'Delete':
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            return
+
+        config_json = event['ResourceProperties']['ConfigJson']
+        config = json.loads(config_json)
+        errors = []
+
+        if not isinstance(config, dict):
+            errors.append("config.yaml must be a YAML mapping")
+            cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': '; '.join(errors)})
+            return
+
+        # Validate supervisor
+        sup = config.get('supervisor')
+        if not sup:
+            errors.append("Missing required section: 'supervisor'")
+        elif isinstance(sup, dict):
+            if not sup.get('name'): errors.append("supervisor: missing 'name'")
+            if not sup.get('systemPrompt'): errors.append("supervisor: missing 'systemPrompt'")
+
+        # Collect names
+        tool_names = set()
+        for i, t in enumerate(config.get('tools') or []):
+            if isinstance(t, dict):
+                name = t.get('name')
+                if not name: errors.append(f"tools[{i}]: missing 'name'")
+                elif name in tool_names: errors.append(f"tools[{i}]: duplicate name '{name}'")
+                else: tool_names.add(name)
+
+        agent_names = set()
+        for i, a in enumerate(config.get('subAgents') or []):
+            if isinstance(a, dict):
+                name = a.get('name')
+                if not name: errors.append(f"subAgents[{i}]: missing 'name'")
+                elif name in agent_names: errors.append(f"subAgents[{i}]: duplicate name '{name}'")
+                else: agent_names.add(name)
+                if not a.get('systemPrompt'): errors.append(f"subAgents[{i}]: missing 'systemPrompt'")
+                for tr in (a.get('tools') or []):
+                    if tr not in tool_names: errors.append(f"subAgents[{i}]: undefined tool '{tr}'")
+
+        # Cross-ref supervisor
+        if sup and isinstance(sup, dict):
+            for ref in (sup.get('subAgents') or []):
+                if ref not in agent_names: errors.append(f"supervisor: undefined sub-agent '{ref}'")
+            for ref in (sup.get('tools') or []):
+                if ref not in tool_names: errors.append(f"supervisor: undefined tool '{ref}'")
+
+        # Guardrail enums
+        gr = config.get('guardrail')
+        if gr and isinstance(gr, dict):
+            if not gr.get('name'): errors.append("guardrail: missing 'name'")
+            for i, cf in enumerate(gr.get('contentFilters') or []):
+                if isinstance(cf, dict):
+                    if cf.get('type') not in VALID_CONTENT_FILTER_TYPES:
+                        errors.append(f"guardrail.contentFilters[{i}]: invalid type '{cf.get('type')}'")
+                    if cf.get('inputStrength') and cf['inputStrength'] not in VALID_STRENGTHS:
+                        errors.append(f"guardrail.contentFilters[{i}]: invalid inputStrength")
+                    if cf.get('outputStrength') and cf['outputStrength'] not in VALID_STRENGTHS:
+                        errors.append(f"guardrail.contentFilters[{i}]: invalid outputStrength")
+            for i, dt in enumerate(gr.get('denyTopics') or []):
+                if isinstance(dt, dict):
+                    if not dt.get('name'): errors.append(f"guardrail.denyTopics[{i}]: missing 'name'")
+                    if not dt.get('definition'): errors.append(f"guardrail.denyTopics[{i}]: missing 'definition'")
+                    if dt.get('inputAction') and dt['inputAction'] not in VALID_TOPIC_ACTIONS:
+                        errors.append(f"guardrail.denyTopics[{i}]: invalid inputAction")
+                    if dt.get('outputAction') and dt['outputAction'] not in VALID_TOPIC_ACTIONS:
+                        errors.append(f"guardrail.denyTopics[{i}]: invalid outputAction")
+
+        if errors:
+            msg = f"agent-config/config.yaml validation failed: {'; '.join(errors)}"
+            print(msg)
+            cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': msg})
+        else:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Message': 'Validation passed'})
+    except Exception as e:
+        cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': f'Validation error: {e}'})
+`),
+      });
+
+      const validateConfigProvider = new cr.Provider(this, 'ValidateAgentConfigProvider', {
+        onEventHandler: validateConfigFn,
+      });
+
+      const validateConfig = new cdk.CustomResource(this, 'ValidateAgentConfig', {
+        serviceToken: validateConfigProvider.serviceToken,
+        properties: {
+          ConfigJson: configJson,
+          // Hash to re-trigger validation when config changes
+          ConfigHash: Buffer.from(configJson).toString('base64').slice(0, 32),
+        },
+      });
+
+      // Use the training artifacts bucket (reuse existing bucket to avoid extra cost)
+      const agentConfigDeployment = new s3deploy.BucketDeployment(this, 'DeployAgentConfig', {
+        sources: [s3deploy.Source.asset(agentConfigPath, {
+          exclude: ['examples/**', 'README.md'],
+        })],
+        destinationBucket: trainingArtifactsBucket,
+        destinationKeyPrefix: 'agent-config',
+      });
+
+      // Ensure validation passes before deploying config to S3
+      agentConfigDeployment.node.addDependency(validateConfig);
+
+      // Set environment variables so the agentic-api Lambda can find the config
+      agenticLambda.addEnvironment('AGENT_CONFIG_BUCKET', trainingArtifactsBucket.bucketName);
+      agenticLambda.addEnvironment('AGENT_CONFIG_PREFIX', 'agent-config/');
+    }
+
     // Grant Lambda permissions for Bedrock Custom Model Deployment operations (Fine-Tuning)
     agenticLambda.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
@@ -1654,70 +1807,40 @@ def handler(event, context):
       encryption: s3.BucketEncryption.S3_MANAGED,
     });
 
-    // CloudFront Origin Access Identity for S3 bucket access
-    const originAccessIdentity = new cf.OriginAccessIdentity(this, 'OAI', {
-      comment: 'OAI for AI League Community Edition frontend',
-    });
-
-    // Grant CloudFront OAI read access to the S3 bucket
-    frontendBucket.grantRead(originAccessIdentity);
-
     // API Gateway domain for CloudFront custom origin
     const apiDomainName = `${api.restApiId}.execute-api.${this.region}.amazonaws.com`;
 
-    // CloudFront distribution with two origins:
-    // 1. Default behavior: S3 for static assets
-    // 2. /api/* behavior: API Gateway custom origin
-    const distribution = new cf.CloudFrontWebDistribution(this, 'FrontendDistribution', {
-      originConfigs: [
-        // S3 origin for static assets (default behavior)
-        {
-          s3OriginSource: {
-            s3BucketSource: frontendBucket,
-            originAccessIdentity,
-          },
-          behaviors: [
-            {
-              isDefaultBehavior: true,
-              viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-            },
-          ],
+    // CloudFront distribution using the modern Distribution construct
+    // Two origins: S3 for static assets (default), API Gateway for /api/*
+    const distribution = new cf.Distribution(this, 'FrontendDistribution', {
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      },
+      additionalBehaviors: {
+        '/api/*': {
+          origin: new origins.HttpOrigin(apiDomainName, {
+            protocolPolicy: cf.OriginProtocolPolicy.HTTPS_ONLY,
+          }),
+          viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cf.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cf.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cf.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
         },
-        // API Gateway origin for /api/* path pattern
+      },
+      // SPA routing: serve index.html for 403/404
+      errorResponses: [
         {
-          customOriginSource: {
-            domainName: apiDomainName,
-            originProtocolPolicy: cf.OriginProtocolPolicy.HTTPS_ONLY,
-          },
-          behaviors: [
-            {
-              pathPattern: '/api/*',
-              allowedMethods: cf.CloudFrontAllowedMethods.ALL,
-              viewerProtocolPolicy: cf.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-              forwardedValues: {
-                queryString: true,
-                headers: ['Authorization', 'Content-Type'],
-              },
-              defaultTtl: cdk.Duration.seconds(0),
-              minTtl: cdk.Duration.seconds(0),
-              maxTtl: cdk.Duration.seconds(0),
-            },
-          ],
-        },
-      ],
-      // Custom error responses for SPA routing (serve index.html for 403/404)
-      errorConfigurations: [
-        {
-          errorCode: 403,
-          responseCode: 200,
+          httpStatus: 403,
+          responseHttpStatus: 200,
           responsePagePath: '/index.html',
-          errorCachingMinTtl: 0,
+          ttl: cdk.Duration.seconds(0),
         },
         {
-          errorCode: 404,
-          responseCode: 200,
+          httpStatus: 404,
+          responseHttpStatus: 200,
           responsePagePath: '/index.html',
-          errorCachingMinTtl: 0,
+          ttl: cdk.Duration.seconds(0),
         },
       ],
       defaultRootObject: 'index.html',
