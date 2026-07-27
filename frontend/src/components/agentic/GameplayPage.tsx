@@ -118,6 +118,7 @@ interface GameEvent {
   coinBonus?: number;
   challengesAttempted?: number;
   tokensUsed?: number;
+  customModelCount?: number;
 }
 
 // Event type delay mapping (ms)
@@ -209,6 +210,7 @@ export default function GameplayPage() {
   const replayQueueRef = useRef<GameEvent[]>([]);
   const replayingRef = useRef(false);
   const processedEventCountRef = useRef(0);
+  const allGameEventsRef = useRef<GameEvent[]>([]);
   const combatLogEndRef = useRef<HTMLDivElement | null>(null);
 
   // Load available maps on mount
@@ -532,6 +534,9 @@ export default function GameplayPage() {
             pollingRef.current = null;
           }
 
+          // Store complete events for battle log download
+          allGameEventsRef.current = events;
+
           if (session.status === 'error') {
             setError(session.error || 'Game session encountered an error');
           }
@@ -735,6 +740,70 @@ export default function GameplayPage() {
       setIsSubmitting(false);
     }
   }, [sessionId, selectedMap, mapOptions]);
+
+  // Download battle log as JSON matching real game format
+  const handleDownloadBattleLog = useCallback(() => {
+    const events = allGameEventsRef.current;
+    if (!events || events.length === 0) return;
+
+    // Build summary from ScoreSummary event (matches real game format)
+    const summaryEvent = events.find((e) => e.type === 'ScoreSummary');
+    const summary = summaryEvent ? {
+      timeRemaining: formatTime(timer),
+      livesRemaining: summaryEvent.livesRemaining ?? 0,
+      lifeBonus: summaryEvent.lifeBonusScore ?? 0,
+      coinsEarned: (summaryEvent.coinBonus ?? 0) + (summaryEvent.challengeScore ?? summaryEvent.qaScore ?? 0),
+      treasureBonus: summaryEvent.treasureBonus ?? 0,
+      totalScore: summaryEvent.finalScore ?? 0,
+      tokensUsed: summaryEvent.tokensUsed ?? 0,
+      challengesAttempted: summaryEvent.challengesAttempted ?? 0,
+      avgTokensPerChallenge: (summaryEvent.challengesAttempted ?? 0) > 0
+        ? Math.round((summaryEvent.tokensUsed ?? 0) / (summaryEvent.challengesAttempted ?? 1))
+        : 0,
+      tokenBonus: Math.round(summaryEvent.givenTokenBonus ?? 0),
+    } : undefined;
+
+    // Format events to match real game structure (only include relevant fields per type)
+    const formattedEvents = events.map((e) => {
+      const out: Record<string, unknown> = { type: e.type };
+      if (e.message !== undefined) out.message = e.message;
+      if (e.position) out.position = e.position;
+      if (e.challengeId) out.challengeId = e.challengeId;
+      if (e.challengeName) out.challengeName = e.challengeName;
+      if (e.challengePoints !== undefined) out.challengePoints = e.challengePoints;
+      if (e.points !== undefined) out.points = e.points;
+      if (e.damage !== undefined) out.damage = e.damage;
+      if (e.type === 'ScoreSummary') {
+        out.livesRemaining = e.livesRemaining ?? 0;
+        out.lifeBonus = e.lifeBonusScore ?? 0;
+        out.coinsEarned = (e.coinBonus ?? 0) + (e.challengeScore ?? e.qaScore ?? 0);
+        out.tokensUsed = e.tokensUsed ?? 0;
+        out.challengesAttempted = e.challengesAttempted ?? 0;
+        out.avgTokensPerChallenge = (e.challengesAttempted ?? 0) > 0
+          ? Math.round((e.tokensUsed ?? 0) / (e.challengesAttempted ?? 1))
+          : 0;
+        out.tokenBonus = Math.round(e.givenTokenBonus ?? 0);
+        out.treasureBonus = e.treasureBonus ?? 0;
+        out.totalScore = e.finalScore ?? 0;
+        out.customModelCount = e.customModelCount ?? 0;
+      }
+      if (e.type === 'WinGame' && e.points !== undefined) {
+        out.timeElapsed = mapData ? mapData.timeLimit - timer : 0;
+      }
+      return out;
+    });
+
+    const battleLog = { events: formattedEvents, ...(summary ? { summary } : {}) };
+    const blob = new Blob([JSON.stringify(battleLog, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `battle-log-${sessionId || 'unknown'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [timer, mapData, sessionId]);
 
   // Play again
   const handlePlayAgain = useCallback(() => {
@@ -1100,6 +1169,9 @@ export default function GameplayPage() {
             <SpaceBetween direction="horizontal" size="xs">
               <Button variant="link" onClick={handlePlayAgain}>
                 Play Again
+              </Button>
+              <Button variant="normal" onClick={handleDownloadBattleLog}>
+                Download Battle Log
               </Button>
               {!submitSuccess && (
                 <Button
