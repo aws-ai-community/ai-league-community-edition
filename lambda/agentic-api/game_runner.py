@@ -54,6 +54,28 @@ CHALLENGE_TILES = {
     "c40", "c41", "c42", "c43",
 }
 
+# Human-readable challenge names (matching real AWS AI League game format)
+CHALLENGE_NAMES: Dict[str, str] = {
+    "c1": "Violent Violet",
+    "c2": "Code Challenge Challenge",
+    "c3": "Memento Challenge",
+    "c4": "Web Search Challenge",
+    "c5": "Simple Question Challenge",
+    "c6": "Boss Challenge",
+    "c7": "some Coins",
+    "c8": "a Spike trap",
+    "c17": "A Distraction",
+    "c18": "Risk Analyzer",
+    "c30": "a Red Door",
+    "c31": "a Green Door",
+    "c32": "a Grey Door",
+    "c33": "a Yellow Door",
+    "c40": "a Red Key",
+    "c41": "a Green Key",
+    "c42": "a Grey Key",
+    "c43": "a Yellow Key",
+}
+
 # Default tile points and damage values
 DEFAULT_TILE_CONFIG: Dict[str, Dict[str, int]] = {
     "c1": {"points": 400, "damage": 1},
@@ -181,7 +203,7 @@ def run_game_session(
             game_events.append({
                 "type": "WinNonPromptChallenge",
                 "challengeId": cell,
-                "challengeName": "Coins",
+                "challengeName": CHALLENGE_NAMES.get(cell, "Coins"),
                 "damage": 0,
                 "points": pts,
                 "position": {"row": r, "col": c},
@@ -199,7 +221,7 @@ def run_game_session(
             game_events.append({
                 "type": "LoseNonPromptChallenge",
                 "challengeId": cell,
-                "challengeName": "Spikes",
+                "challengeName": CHALLENGE_NAMES.get(cell, "Spikes"),
                 "damage": dmg,
                 "points": 0,
                 "position": {"row": r, "col": c},
@@ -244,7 +266,7 @@ def run_game_session(
 
                     game_events.append({
                         "type": "FoundChallenge",
-                        "challengeName": f"Door ({cell})",
+                        "challengeName": CHALLENGE_NAMES.get(cell, f"Door ({cell})"),
                         "position": {"row": r, "col": c},
                     })
                     game_events.append({
@@ -264,6 +286,7 @@ def run_game_session(
                             "type": "WinChallenge",
                             "challengeId": cell,
                             "challengePoints": pts,
+                            "points": pts,
                             "position": {"row": r, "col": c},
                             "scoreAfter": score,
                             "livesAfter": lives,
@@ -305,7 +328,7 @@ def run_game_session(
 
                 game_events.append({
                     "type": "FoundChallenge",
-                    "challengeName": f"Key ({cell})",
+                    "challengeName": CHALLENGE_NAMES.get(cell, f"Key ({cell})"),
                     "position": {"row": r, "col": c},
                 })
                 game_events.append({
@@ -372,7 +395,7 @@ def run_game_session(
 
                 game_events.append({
                     "type": "FoundChallenge",
-                    "challengeName": challenge_data.get("type", cell),
+                    "challengeName": CHALLENGE_NAMES.get(cell, cell),
                     "position": {"row": r, "col": c},
                 })
                 game_events.append({
@@ -646,7 +669,7 @@ def run_game_session_v2(
             game_events.append({
                 "type": "WinNonPromptChallenge",
                 "challengeId": cell,
-                "challengeName": "Coins",
+                "challengeName": CHALLENGE_NAMES.get(cell, "Coins"),
                 "damage": 0,
                 "points": pts,
                 "position": {"row": r, "col": c},
@@ -665,7 +688,7 @@ def run_game_session_v2(
             game_events.append({
                 "type": "LoseNonPromptChallenge",
                 "challengeId": cell,
-                "challengeName": "Spikes",
+                "challengeName": CHALLENGE_NAMES.get(cell, "Spikes"),
                 "damage": dmg,
                 "points": 0,
                 "position": {"row": r, "col": c},
@@ -712,7 +735,7 @@ def run_game_session_v2(
 
                     game_events.append({
                         "type": "FoundChallenge",
-                        "challengeName": f"Door ({cell})",
+                        "challengeName": CHALLENGE_NAMES.get(cell, f"Door ({cell})"),
                         "position": {"row": r, "col": c},
                     })
                     game_events.append({
@@ -756,6 +779,7 @@ def run_game_session_v2(
                             "type": "WinChallenge",
                             "challengeId": cell,
                             "challengePoints": pts,
+                            "points": pts,
                             "position": {"row": r, "col": c},
                             "scoreAfter": score,
                             "livesAfter": lives,
@@ -798,7 +822,7 @@ def run_game_session_v2(
 
                 game_events.append({
                     "type": "FoundChallenge",
-                    "challengeName": f"Key ({cell})",
+                    "challengeName": CHALLENGE_NAMES.get(cell, f"Key ({cell})"),
                     "position": {"row": r, "col": c},
                 })
                 game_events.append({
@@ -894,7 +918,7 @@ def run_game_session_v2(
 
                 game_events.append({
                     "type": "FoundChallenge",
-                    "challengeName": challenge_data.get("type", cell),
+                    "challengeName": CHALLENGE_NAMES.get(cell, cell),
                     "position": {"row": r, "col": c},
                 })
                 game_events.append({
