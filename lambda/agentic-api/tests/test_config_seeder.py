@@ -461,6 +461,8 @@ class TestSeedWithMemoryAndGuardrail:
         mock_load.return_value = CONFIG_WITH_MEMORY_AND_GUARDRAIL
 
         mock_table = MagicMock()
+        # get_item returns no Item (record doesn't exist) so seeder attempts creation
+        mock_table.get_item.return_value = {}
         mock_dynamodb = MagicMock()
         mock_dynamodb.Table.return_value = mock_table
         mock_boto3.resource.return_value = mock_dynamodb
@@ -511,6 +513,8 @@ class TestSeedWithMemoryAndGuardrail:
         mock_load.return_value = CONFIG_WITH_MEMORY_AND_GUARDRAIL
 
         mock_table = MagicMock()
+        # get_item returns no Item (record doesn't exist) so seeder attempts creation
+        mock_table.get_item.return_value = {}
         mock_dynamodb = MagicMock()
         mock_dynamodb.Table.return_value = mock_table
         mock_boto3.resource.return_value = mock_dynamodb
