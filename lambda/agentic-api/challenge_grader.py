@@ -71,13 +71,55 @@ def _contains_match(response: str, expected: str) -> bool:
 def _json_exact_match(response: str, expected: str) -> bool:
     """Parse both as JSON and compare structural equality.
 
+    Extracts JSON from the response by finding the first { or [ character,
+    handling cases where the response contains tool-use prefixes or other text
+    before the actual JSON payload.
+
     Returns False if either string fails to parse as valid JSON.
     """
     try:
-        response_json = json.loads(response)
         expected_json = json.loads(expected)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return False
+
+    # Try parsing response as-is first
+    try:
+        response_json = json.loads(response)
         return response_json == expected_json
     except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    # Extract JSON from response — find first { or [
+    first_brace = -1
+    for i, ch in enumerate(response):
+        if ch in ('{', '['):
+            first_brace = i
+            break
+
+    if first_brace < 0:
+        return False
+
+    # Try parsing from the first brace to end, trimming trailing text if needed
+    candidate = response[first_brace:].strip()
+    try:
+        response_json = json.loads(candidate)
+        return response_json == expected_json
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # Try finding matching closing brace/bracket
+        open_char = candidate[0]
+        close_char = '}' if open_char == '{' else ']'
+        depth = 0
+        for i, ch in enumerate(candidate):
+            if ch == open_char:
+                depth += 1
+            elif ch == close_char:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        response_json = json.loads(candidate[:i + 1])
+                        return response_json == expected_json
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        return False
         return False
 
 
