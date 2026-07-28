@@ -131,6 +131,12 @@ def handler(event, context):
             except Exception as e:
                 logger.error("Flush error: %s", e)
 
+        # Extract time limit from map data (seconds)
+        time_limit = 0
+        map_defaults = map_data.get("defaults", {})
+        if isinstance(map_defaults, dict):
+            time_limit = int(map_defaults.get("timeLimit", 0) or map_defaults.get("time", 0))
+
         results = game_runner.run_game_session_v2(
             session_id=session_id,
             map_data=map_data,
@@ -143,6 +149,7 @@ def handler(event, context):
             user_prompt=user_prompt,
             invoke_payload=invoke_payload,
             pathfinding_tokens=pathfinding_tokens,
+            time_limit=time_limit,
         )
 
         # Step 5: Persist final results

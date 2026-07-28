@@ -209,8 +209,12 @@ export default function GameplayPage() {
   const pollCountRef = useRef(0);
   const replayQueueRef = useRef<GameEvent[]>([]);
   const replayingRef = useRef(false);
+  const gameEndedRef = useRef(false);
   const processedEventCountRef = useRef(0);
   const allGameEventsRef = useRef<GameEvent[]>([]);
+  const replayedEventsRef = useRef<GameEvent[]>([]);
+  const scoreRef = useRef(0);
+  const livesRef = useRef(5);
   const combatLogEndRef = useRef<HTMLDivElement | null>(null);
 
   // Load available maps on mount
@@ -316,7 +320,19 @@ export default function GameplayPage() {
       timerRef.current = setInterval(() => {
         setTimer((prev) => {
           if (prev <= 1) {
+            // Time's up — stop replay immediately (avatar stops, combat log freezes)
+            gameEndedRef.current = true;
+            replayQueueRef.current = [];
+            replayingRef.current = false;
+            setIsReplaying(false);
             setPhase('gameover');
+            setShowGameOverModal(true);
+            // Show modal with loading state — backend will provide full data
+            setScoreSummary({
+              type: 'ScoreSummary',
+              message: "Time's up! Calculating final score...",
+            } as GameEvent);
+            // Keep polling — backend's ScoreSummary will update the modal
             return 0;
           }
           return prev - 1;
@@ -374,6 +390,9 @@ export default function GameplayPage() {
   const processEventRef = useRef((event: GameEvent) => {
     const pos = getEventPos(event);
 
+    // Track replayed events for battle log download on timeout
+    replayedEventsRef.current.push(event);
+
     // Update champion position ONLY on MoveSpace events
     if (event.type === 'MoveSpace' && pos) {
       setChampionPos([pos.row, pos.col]);
@@ -392,10 +411,12 @@ export default function GameplayPage() {
     if (event.type === 'WinChallenge' || event.type === 'WinNonPromptChallenge') {
       if (event.scoreAfter !== undefined) {
         setScore(event.scoreAfter);
+        scoreRef.current = event.scoreAfter;
       } else if (event.score !== undefined) {
         setScore(event.score);
+        scoreRef.current = event.score;
       } else if (event.points !== undefined) {
-        setScore((prev) => prev + event.points!);
+        setScore((prev) => { const n = prev + event.points!; scoreRef.current = n; return n; });
       }
     }
 
@@ -403,10 +424,12 @@ export default function GameplayPage() {
     if (event.type === 'LoseChallenge' || event.type === 'LoseNonPromptChallenge') {
       if (event.livesAfter !== undefined) {
         setLives(event.livesAfter);
+        livesRef.current = event.livesAfter;
       } else if (event.lives !== undefined) {
         setLives(event.lives);
+        livesRef.current = event.lives;
       } else if (event.damage !== undefined) {
-        setLives((prev) => Math.max(0, prev - event.damage!));
+        setLives((prev) => { const n = Math.max(0, prev - event.damage!); livesRef.current = n; return n; });
       }
     }
 
@@ -452,6 +475,15 @@ export default function GameplayPage() {
 
       processEventRef.current(event);
 
+      // Stop replay after ScoreSummary (game is over — don't process further events)
+      if (event.type === 'ScoreSummary') {
+        replayQueueRef.current = [];
+        replayingRef.current = false;
+        gameEndedRef.current = true;
+        setIsReplaying(false);
+        return;
+      }
+
       setTimeout(processNext, delay);
     };
 
@@ -467,8 +499,8 @@ export default function GameplayPage() {
     pollingRef.current = setInterval(async () => {
       pollCountRef.current += 1;
 
-      // Stop after 150 attempts (5 min at 2s intervals)
-      if (pollCountRef.current > 150) {
+      // Stop after 300 attempts (5 min at 1s intervals)
+      if (pollCountRef.current > 300) {
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
@@ -498,7 +530,8 @@ export default function GameplayPage() {
         const newEvents = events.slice(processedEventCountRef.current);
         processedEventCountRef.current = events.length;
 
-        if (newEvents.length > 0) {
+        // Don't queue new events if game has already ended (ScoreSummary was processed)
+        if (newEvents.length > 0 && !gameEndedRef.current) {
           // On first batch, render planned path and delay before replay
           if (isFirstBatch) {
             isFirstBatch = false;
@@ -528,14 +561,26 @@ export default function GameplayPage() {
         }
 
         // Stop polling when session is complete or error
-        if (session.status === 'completed' || session.status === 'complete' || session.status === 'error' || session.status === 'game_over') {
+        if (session.status === 'completed' || session.status === 'complete' || session.status === 'error' || session.status === 'game_over' || session.status === 'time_up') {
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
           }
 
-          // Store complete events for battle log download
-          allGameEventsRef.current = events;
+          // Store complete events for battle log download (only up to ScoreSummary)
+          const summaryIdx = events.findIndex((e: GameEvent) => e.type === 'ScoreSummary');
+          allGameEventsRef.current = summaryIdx >= 0 ? events.slice(0, summaryIdx + 1) : events;
+
+          // Update modal with backend's authoritative scoring (covers time_up case)
+          if (summaryIdx >= 0) {
+            const backendSummary = events[summaryIdx];
+            const finalScoreValue = backendSummary.finalScore ?? backendSummary.totalScore;
+            setScoreSummary({ ...backendSummary, finalScore: finalScoreValue });
+            if (finalScoreValue !== undefined) setScore(finalScoreValue);
+            if (backendSummary.livesRemaining !== undefined) setLives(backendSummary.livesRemaining);
+            setPhase('gameover');
+            setShowGameOverModal(true);
+          }
 
           if (session.status === 'error') {
             setError(session.error || 'Game session encountered an error');
@@ -544,7 +589,7 @@ export default function GameplayPage() {
       } catch {
         // Continue polling on transient errors
       }
-    }, 2000);
+    }, 1000);
   }, [startReplayProcessing]);
 
   // Cleanup polling on unmount
@@ -643,6 +688,10 @@ export default function GameplayPage() {
     setShowGameOverModal(false);
     setSubmitSuccess(false);
     replayQueueRef.current = [];
+    replayedEventsRef.current = [];
+    gameEndedRef.current = false;
+    scoreRef.current = 0;
+    livesRef.current = mapData?.lives ?? 5;
     processedEventCountRef.current = 0;
 
     try {
@@ -818,6 +867,7 @@ export default function GameplayPage() {
     setSubmitSuccess(false);
     setSessionId(null);
     replayQueueRef.current = [];
+    gameEndedRef.current = false;
     processedEventCountRef.current = 0;
     if (mapData) {
       setLives(mapData.lives);
@@ -1163,7 +1213,7 @@ export default function GameplayPage() {
       <Modal
         visible={showGameOverModal}
         onDismiss={() => setShowGameOverModal(false)}
-        header="Game Over"
+        header={scoreSummary?.message === "Time's up! Calculating final score..." ? "Time's Up! Calculating..." : "Game Over"}
         footer={
           <Box float="right">
             <SpaceBetween direction="horizontal" size="xs">
