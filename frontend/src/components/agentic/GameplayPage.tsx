@@ -119,6 +119,7 @@ interface GameEvent {
   challengesAttempted?: number;
   tokensUsed?: number;
   customModelCount?: number;
+  durationMs?: number;
 }
 
 // Event type delay mapping (ms)
@@ -471,7 +472,9 @@ export default function GameplayPage() {
       }
 
       const event = replayQueueRef.current.shift()!;
-      const delay = EVENT_DELAYS[event.type] || 300;
+      // Use backend-reported duration for AnswerChallenge (simulates real processing time)
+      // Fall back to default delay if no duration recorded
+      const delay = event.durationMs ?? EVENT_DELAYS[event.type] ?? 200;
 
       processEventRef.current(event);
 
@@ -571,15 +574,19 @@ export default function GameplayPage() {
           const summaryIdx = events.findIndex((e: GameEvent) => e.type === 'ScoreSummary');
           allGameEventsRef.current = summaryIdx >= 0 ? events.slice(0, summaryIdx + 1) : events;
 
-          // Update modal with backend's authoritative scoring (covers time_up case)
+          // Update score/lives with backend's authoritative data
           if (summaryIdx >= 0) {
             const backendSummary = events[summaryIdx];
             const finalScoreValue = backendSummary.finalScore ?? backendSummary.totalScore;
             setScoreSummary({ ...backendSummary, finalScore: finalScoreValue });
-            if (finalScoreValue !== undefined) setScore(finalScoreValue);
-            if (backendSummary.livesRemaining !== undefined) setLives(backendSummary.livesRemaining);
-            setPhase('gameover');
-            setShowGameOverModal(true);
+            // If timer already expired (gameEndedRef), show modal immediately since replay has stopped
+            if (gameEndedRef.current) {
+              if (finalScoreValue !== undefined) setScore(finalScoreValue);
+              if (backendSummary.livesRemaining !== undefined) setLives(backendSummary.livesRemaining);
+              setPhase('gameover');
+              setShowGameOverModal(true);
+            }
+            // Otherwise let the replay queue process ScoreSummary naturally
           }
 
           if (session.status === 'error') {

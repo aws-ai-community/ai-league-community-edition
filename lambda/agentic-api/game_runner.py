@@ -763,6 +763,7 @@ def run_game_session_v2(
                         status = "time_up"
                         break
 
+                    _invoke_start = time.time()
                     try:
                         challenge_payload = {
                             **(invoke_payload or {}),
@@ -771,7 +772,7 @@ def run_game_session_v2(
                             "session_id": session_id,
                         }
                         answer, usage = invoke_agent_runtime(
-                            runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
+                            runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=session_id
                         )
                         tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else 0
                         tokens_used = tokens_used or max(1, len(answer) // 2)
@@ -779,6 +780,7 @@ def run_game_session_v2(
                     except AgentCoreTimeoutError:
                         logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                         answer = ""
+                    _invoke_duration_ms = int((time.time() - _invoke_start) * 1000)
 
                     # Check time after invocation returns — discard result if over
                     if time_limit > 0 and (time.time() - game_start_time) > time_limit:
@@ -789,6 +791,14 @@ def run_game_session_v2(
                                                 guardrail_id=(invoke_payload or {}).get("guardrail_id"),
                                                 question=question)
                     challenges_visited += 1
+
+                    # Emit AnswerChallenge for door challenges
+                    game_events.append({
+                        "type": "AnswerChallenge",
+                        "message": answer[:500] if answer else "(no response)",
+                        "position": {"row": r, "col": c},
+                        "durationMs": _invoke_duration_ms,
+                    })
 
                     if is_correct:
                         correct_answers += 1
@@ -860,6 +870,7 @@ def run_game_session_v2(
                     break
 
                 # Invoke AgentCore for answer
+                _invoke_start = time.time()
                 try:
                     challenge_payload = {
                         **(invoke_payload or {}),
@@ -868,7 +879,7 @@ def run_game_session_v2(
                         "session_id": session_id,
                     }
                     answer, usage = invoke_agent_runtime(
-                        runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
+                        runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=session_id
                     )
                     tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else 0
                     tokens_used = tokens_used or max(1, len(answer) // 2)
@@ -876,6 +887,7 @@ def run_game_session_v2(
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on key challenge at (%d,%d)", r, c)
                     answer = ""
+                _invoke_duration_ms = int((time.time() - _invoke_start) * 1000)
 
                 # Check time after invocation returns — discard result if over
                 if time_limit > 0 and (time.time() - game_start_time) > time_limit:
@@ -886,6 +898,14 @@ def run_game_session_v2(
                                             guardrail_id=(invoke_payload or {}).get("guardrail_id"),
                                             question=question)
                 challenges_visited += 1
+
+                # Emit AnswerChallenge for key challenges
+                game_events.append({
+                    "type": "AnswerChallenge",
+                    "message": answer[:500] if answer else "(no response)",
+                    "position": {"row": r, "col": c},
+                    "durationMs": _invoke_duration_ms,
+                })
 
                 if is_correct:
                     correct_answers += 1
@@ -966,6 +986,7 @@ def run_game_session_v2(
                     break
 
                 # Invoke AgentCore for answer
+                _invoke_start = time.time()
                 try:
                     challenge_payload = {
                         **(invoke_payload or {}),
@@ -974,7 +995,7 @@ def run_game_session_v2(
                         "session_id": session_id,
                     }
                     answer, usage = invoke_agent_runtime(
-                        runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=f"{session_id}-c{step_idx}"
+                        runtime_arn, payload=challenge_payload, timeout=INVOCATION_TIMEOUT_SECONDS, session_id=session_id
                     )
                     tokens_used = usage.get("total_usage", {}).get("outputTokens", 0) if usage else 0
                     tokens_used = tokens_used or max(1, len(answer) // 2)
@@ -982,6 +1003,7 @@ def run_game_session_v2(
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                     answer = ""
+                _invoke_duration_ms = int((time.time() - _invoke_start) * 1000)
 
                 # Check time after invocation returns — discard result if over
                 if time_limit > 0 and (time.time() - game_start_time) > time_limit:
@@ -999,6 +1021,7 @@ def run_game_session_v2(
                     "type": "AnswerChallenge",
                     "message": answer[:500] if answer else "(no response)",
                     "position": {"row": r, "col": c},
+                    "durationMs": _invoke_duration_ms,
                 })
 
                 if is_correct:
