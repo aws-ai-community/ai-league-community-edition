@@ -216,14 +216,15 @@ def seed_user_config(user_id: str) -> dict:
         memory_name = memory_config["name"]
         memory_tool_id = _deterministic_id(user_id, "memory", memory_name)
 
-        # Check if memory record already exists (kept by nuke step) — skip if so
+        # Check if memory record already exists with a valid memoryId — skip if so
         try:
             existing = table.get_item(Key={"userId": user_id, "sk": f"MEMORY#{memory_tool_id}"})
-            if existing.get("Item"):
-                logger.info("Memory '%s' already exists in DynamoDB — skipping creation", memory_name)
+            existing_item = existing.get("Item")
+            if existing_item and existing_item.get("memoryId"):
+                logger.info("Memory '%s' already exists in DynamoDB with ID %s — skipping creation", memory_name, existing_item["memoryId"])
                 # memory_tool_id is set, supervisor will reference it
             else:
-                raise KeyError("not found")  # trigger creation below
+                raise KeyError("not found or empty memoryId")  # trigger creation below
         except (KeyError, Exception):
             try:
                 memory_id = _create_memory(memory_config)
@@ -559,7 +560,7 @@ def _create_memory(memory_config: dict) -> Optional[str]:
             description=memory_config.get("description", "Agent memory"),
             eventExpiryDuration=365,
         )
-        return resp.get("memoryId", "")
+        return resp.get("memory", {}).get("id", "")
     except Exception as e:
         error_msg = str(e)
         # If memory already exists, look it up and reuse it

@@ -509,6 +509,18 @@ def _handle_agentcore_flow(
                     invoke_payload["guardrail_version"] = "DRAFT"
             except Exception as e:
                 logger.warning("Failed to resolve guardrail tool %s for user %s: %s", guardrail_tool_id, user_id, e)
+        # Resolve memory tool ID to AgentCore memory ID
+        memory_tool_id = sup_item.get("memoryTool")
+        if memory_tool_id:
+            try:
+                mem_resp = agent_configurations_table.get_item(
+                    Key={"userId": user_id, "sk": f"MEMORY#{memory_tool_id}"}
+                )
+                mem_item = mem_resp.get("Item")
+                if mem_item and mem_item.get("memoryId"):
+                    invoke_payload["memory_id"] = mem_item["memoryId"]
+            except Exception as e:
+                logger.warning("Failed to resolve memory tool %s for user %s: %s", memory_tool_id, user_id, e)
         # Supervisor's own Lambda tool targets (if any attached directly)
         if sup_item.get("lambdaTools"):
             # Resolve tool IDs to function names (= gateway target names)

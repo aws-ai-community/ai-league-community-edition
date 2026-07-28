@@ -59,13 +59,43 @@ def grade_response(
 
 
 def _exact_match(response: str, expected: str) -> bool:
-    """Case-insensitive, whitespace-trimmed string equality."""
-    return response.strip().lower() == expected.strip().lower()
+    """Case-insensitive, whitespace-trimmed string equality.
+    
+    Strips tool-use prefixes (e.g. 'Using tool: AgentCoreGatewayTool-X___calc')
+    to extract the actual answer before comparing.
+    """
+    clean_response = _strip_tool_prefix(response)
+    return clean_response.strip().lower() == expected.strip().lower()
 
 
 def _contains_match(response: str, expected: str) -> bool:
     """Check if expected answer appears as a substring in the response."""
     return expected.lower() in response.lower()
+
+
+def _strip_tool_prefix(response: str) -> str:
+    """Strip tool-use prefix lines from an agent response.
+    
+    Handles formats like:
+      'Using tool: AgentCoreGatewayTool-X___calc\n\nAWme'
+      '\n\nUsing tool: AgentCoreGatewayTool-W___url\n\nOlympus Mons'
+      'Using tool: AgentCoreGatewayTool-X___calc AWme'  (answer on same line)
+    Returns the final content after the last tool prefix.
+    """
+    import re
+    # Remove all "Using tool: ..." prefixes (with optional emoji) and get the remainder
+    # Pattern matches optional emoji + "Using tool:" + tool name, then captures the rest
+    cleaned = re.sub(
+        r'(?:.*?)(?:\U0001f527\s*)?Using tool:\s*\S+',
+        '',
+        response,
+        flags=re.DOTALL
+    )
+    # The above is greedy — instead, find the LAST tool prefix and take everything after
+    parts = re.split(r'(?:\U0001f527\s*)?Using tool:\s*\S+', response)
+    if len(parts) > 1:
+        return parts[-1].strip()
+    return response.strip()
 
 
 def _json_exact_match(response: str, expected: str) -> bool:
