@@ -910,6 +910,39 @@ def lambda_handler(event, context):
     }
 
 
+def _parse_schema_response(response_text: str, function_name: str) -> list:
+    """Parse the LLM's JSON response into a list of schema dicts."""
+    import re as _re
+
+    # Try array first, then single object for backward compat
+    json_match = _re.search(r'\[[\s\S]*\]', response_text)
+    if not json_match:
+        json_match = _re.search(r'\{[\s\S]*\}', response_text)
+        if not json_match:
+            return []
+        try:
+            single_schema = json.loads(json_match.group())
+            return [single_schema]
+        except json.JSONDecodeError:
+            return []
+    else:
+        try:
+            schemas = json.loads(json_match.group())
+            if not isinstance(schemas, list):
+                schemas = [schemas]
+            return schemas
+        except json.JSONDecodeError:
+            # Array parse failed, try single object
+            json_match = _re.search(r'\{[\s\S]*\}', response_text)
+            if not json_match:
+                return []
+            try:
+                single_schema = json.loads(json_match.group())
+                return [single_schema]
+            except json.JSONDecodeError:
+                return []
+
+
 def _try_parse_docstring_schema(source_code: str) -> list:
     """Parse structured docstrings to extract MCP tool schemas without using an LLM.
 
@@ -964,11 +997,11 @@ def _try_parse_docstring_schema(source_code: str) -> list:
             param_lines = params_match.group(1).split('\n')
             for line in param_lines:
                 line = line.strip()
-                if not line:
+                if not line or line.startswith('(none'):
                     continue
-                # Pattern: param_name  (required|optional) - description (default: value)
+                # Pattern: param_name  (required[, type]|optional[, type]) - description
                 param_match = _re.match(
-                    r'(\w+)\s+\((required|optional)\)\s*-\s*(.+)', line
+                    r'(\w+)\s+\((required|optional)(?:,\s*\w+)?\)\s*-\s*(.+)', line
                 )
                 if param_match:
                     param_name = param_match.group(1)
@@ -988,9 +1021,7 @@ def _try_parse_docstring_schema(source_code: str) -> list:
                     if is_required:
                         required.append(param_name)
 
-        if not properties:
-            continue
-
+        # Tools with no parameters still get a valid schema
         schema = {
             "name": tool_name,
             "description": description,
@@ -1083,7 +1114,7 @@ def _auto_update_gateway_schema(function_name: str, user_id: str = None) -> None
                 except Exception as e:
                     logger.warning("Failed to load schema model config for user %s: %s", user_id, e)
 
-            # 3. Generate schema using Bedrock Converse
+            # 3. Generate schema using Bedrock Converse (with retry on empty response)
             bedrock = boto3.client("bedrock-runtime")
             prompt = f"""Analyze this Python Lambda function and generate MCP tool schema(s) as a JSON array.
 
@@ -1124,69 +1155,54 @@ Lambda source code:
 {source_code}
 ```"""
 
-            converse_resp = bedrock.converse(
-                modelId=model_id,
-                messages=[{"role": "user", "content": [{"text": prompt}]}],
-                inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
-            )
-
-            response_text = ""
-            for block in converse_resp.get("output", {}).get("message", {}).get("content", []):
-                if "text" in block:
-                    response_text += block["text"]
-
-            logger.info("Raw LLM response for %s (first 1000 chars): %s", function_name, response_text[:1000])
-
-            # Strip markdown code fences if present
-            response_text = _re.sub(r'```(?:json)?\s*', '', response_text).strip()
-            response_text = _re.sub(r'```\s*$', '', response_text).strip()
-
-            # 4. Parse the JSON response (now expecting an array)
-            # Try array first, then single object for backward compat
-            json_match = _re.search(r'\[[\s\S]*\]', response_text)
-            if not json_match:
-                # Fallback: try single object
-                json_match = _re.search(r'\{[\s\S]*\}', response_text)
-                if not json_match:
-                    logger.warning("No JSON found in Bedrock schema response for %s", function_name)
-                    return
-                try:
-                    single_schema = json.loads(json_match.group())
-                    schemas = [single_schema]
-                except json.JSONDecodeError as e:
-                    logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
-                    return
-            else:
-                try:
-                    schemas = json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    # Array parse failed, try single object
-                    json_match = _re.search(r'\{[\s\S]*\}', response_text)
-                    if not json_match:
-                        logger.warning("No valid JSON in Bedrock schema response for %s", function_name)
-                        return
-                    try:
-                        single_schema = json.loads(json_match.group())
-                        schemas = [single_schema]
-                    except json.JSONDecodeError as e:
-                        logger.warning("Invalid JSON in Bedrock schema response for %s: %s", function_name, e)
-                        return
-
-            if not isinstance(schemas, list):
-                schemas = [schemas]
-
-            # Validate each schema has required fields
             valid_schemas = []
-            for schema in schemas:
-                if not isinstance(schema, dict):
-                    continue
-                if not schema.get("name") or not schema.get("description") or not schema.get("inputSchema"):
-                    logger.warning("Schema missing required fields (name/description/inputSchema) for %s: %s", function_name, schema.get("name", "?"))
-                    continue
-                valid_schemas.append(schema)
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    converse_resp = bedrock.converse(
+                        modelId=model_id,
+                        messages=[{"role": "user", "content": [{"text": prompt}]}],
+                        inferenceConfig={"maxTokens": 2048, "temperature": 0.0},
+                    )
+
+                    response_text = ""
+                    for block in converse_resp.get("output", {}).get("message", {}).get("content", []):
+                        if "text" in block:
+                            response_text += block["text"]
+
+                    logger.info("Raw LLM response for %s attempt %d (first 1000 chars): %s", function_name, attempt + 1, response_text[:1000])
+
+                    # Strip markdown code fences if present
+                    response_text = _re.sub(r'```(?:json)?\s*', '', response_text).strip()
+                    response_text = _re.sub(r'```\s*$', '', response_text).strip()
+
+                    # 4. Parse the JSON response (now expecting an array)
+                    schemas = _parse_schema_response(response_text, function_name)
+
+                    # Validate each schema has required fields
+                    for schema in schemas:
+                        if not isinstance(schema, dict):
+                            continue
+                        if not schema.get("name") or not schema.get("description") or not schema.get("inputSchema"):
+                            logger.warning("Schema missing required fields for %s: %s", function_name, schema.get("name", "?"))
+                            continue
+                        valid_schemas.append(schema)
+
+                    if valid_schemas:
+                        break
+                    logger.warning("Attempt %d: No valid schemas from LLM for %s, retrying...", attempt + 1, function_name)
+                except Exception as e:
+                    logger.warning("Attempt %d: LLM schema generation failed for %s: %s", attempt + 1, function_name, e)
+
+            # Fallback: try docstring-based parsing if LLM failed
+            if not valid_schemas:
+                logger.info("LLM schema generation failed after %d attempts for %s, trying docstring parser", max_attempts, function_name)
+                valid_schemas = _try_parse_docstring_schema(source_code)
+                if valid_schemas:
+                    logger.info("Docstring parser produced %d schema(s) for %s", len(valid_schemas), function_name)
 
             if not valid_schemas:
-                logger.warning("No valid schemas generated for %s", function_name)
+                logger.warning("No valid schemas generated for %s after all attempts", function_name)
                 return
 
             logger.info("Generated %d schema(s) for %s: %s", len(valid_schemas), function_name,
@@ -1510,8 +1526,8 @@ def handle_create_memory(arguments: dict, event: dict) -> dict:
             description=description or f"Memory for AI League agent",
             eventExpiryDuration=365,  # Maximum: 365 days
         )
-        memory_id = create_response.get("memoryId", "")
-        status = create_response.get("status", "ACTIVE")
+        memory_id = create_response.get("memory", {}).get("id", "")
+        status = create_response.get("memory", {}).get("status", "CREATING")
     except Exception as e:
         error_code = ""
         if hasattr(e, "response") and "Error" in getattr(e, "response", {}):
@@ -1605,6 +1621,7 @@ def handle_list_memory(arguments: dict, event: dict) -> list:
     """List all memory tools for the authenticated user.
 
     Queries GSI1 with gsi1pk="USER#{userId}" and gsi1sk begins_with "MEMORY#".
+    For items still in CREATING status, checks the actual status from the API and updates DynamoDB.
 
     Requirements: 6.2
     """
@@ -1624,6 +1641,29 @@ def handle_list_memory(arguments: dict, event: dict) -> list:
         return []
 
     items = response.get("Items", [])
+
+    # Check and update status for any items still in CREATING
+    for item in items:
+        if item.get("status") == "CREATING" and item.get("memoryId"):
+            try:
+                client = _get_bedrock_agentcore_control_client()
+                get_resp = client.get_memory(memoryId=item["memoryId"])
+                real_status = get_resp.get("memory", {}).get("status", "CREATING")
+                if real_status != "CREATING":
+                    item["status"] = real_status
+                    # Update DynamoDB in background
+                    try:
+                        agent_configurations_table.update_item(
+                            Key={"userId": user_id, "sk": f"MEMORY#{item['toolId']}"},
+                            UpdateExpression="SET #s = :s",
+                            ExpressionAttributeNames={"#s": "status"},
+                            ExpressionAttributeValues={":s": real_status},
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
     return [
         {
             "toolId": item.get("toolId"),

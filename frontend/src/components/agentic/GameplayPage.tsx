@@ -916,6 +916,56 @@ export default function GameplayPage() {
     return plannedPath.some((p) => p.row === row && p.col === col);
   };
 
+  /**
+   * Compute directional path strips for a cell.
+   * Each visit through a cell leaves a 75%-width strip in the direction of travel.
+   * Returns an array of CSS clip-path insets (top%, right%, bottom%, left%) for each pass.
+   */
+  const getPathStrips = (row: number, col: number): { top: number; right: number; bottom: number; left: number }[] => {
+    if (plannedPath.length === 0) return [];
+    const strips: { top: number; right: number; bottom: number; left: number }[] = [];
+    const margin = 12.5; // percentage to exclude on each side
+
+    for (let i = 0; i < plannedPath.length; i++) {
+      if (plannedPath[i].row !== row || plannedPath[i].col !== col) continue;
+
+      // Determine entry direction (from previous cell)
+      const prev = i > 0 ? plannedPath[i - 1] : null;
+      // Determine exit direction (to next cell)
+      const next = i < plannedPath.length - 1 ? plannedPath[i + 1] : null;
+
+      // Sides to EXCLUDE (start with all excluded, then include based on directions)
+      let excludeTop = true;
+      let excludeBottom = true;
+      let excludeLeft = true;
+      let excludeRight = true;
+
+      // Entry direction: which side did we enter from?
+      if (prev) {
+        if (prev.col < col) excludeLeft = false;   // entered from left
+        if (prev.col > col) excludeRight = false;  // entered from right
+        if (prev.row < row) excludeTop = false;    // entered from top
+        if (prev.row > row) excludeBottom = false; // entered from bottom
+      }
+
+      // Exit direction: which side do we exit to?
+      if (next) {
+        if (next.col > col) excludeRight = false;  // exiting right
+        if (next.col < col) excludeLeft = false;   // exiting left
+        if (next.row > row) excludeBottom = false; // exiting down
+        if (next.row < row) excludeTop = false;    // exiting up
+      }
+
+      strips.push({
+        top: excludeTop ? margin : 0,
+        right: excludeRight ? margin : 0,
+        bottom: excludeBottom ? margin : 0,
+        left: excludeLeft ? margin : 0,
+      });
+    }
+    return strips;
+  };
+
   // Render the map grid
   const renderGrid = () => {
     if (!mapData) return null;
@@ -1008,37 +1058,27 @@ export default function GameplayPage() {
                     />
                   )}
 
-                  {/* Path overlay: visited tiles get white semi-transparent layer */}
-                  {visitCount > 0 && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: `rgba(255, 255, 255, ${Math.min(visitCount * 0.1, 0.7)})`,
-                        pointerEvents: 'none',
-                        zIndex: 5,
-                      }}
-                    />
-                  )}
-
-                  {/* Planned path overlay: show path before replay starts */}
-                  {onPath && visitCount === 0 && phase === 'playing' && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: 'rgba(0, 229, 255, 0.15)',
-                        pointerEvents: 'none',
-                        zIndex: 4,
-                      }}
-                    />
-                  )}
+                  {/* Directional path overlay: painted from start, cumulative per visit */}
+                  {onPath && phase === 'playing' && (() => {
+                    const strips = getPathStrips(rowIdx, colIdx);
+                    if (strips.length === 0) return null;
+                    const opacityPerVisit = 0.15;
+                    return strips.map((strip, stripIdx) => (
+                      <div
+                        key={`strip-${stripIdx}`}
+                        style={{
+                          position: 'absolute',
+                          top: `${strip.top}%`,
+                          left: `${strip.left}%`,
+                          right: `${strip.right}%`,
+                          bottom: `${strip.bottom}%`,
+                          backgroundColor: `rgba(255, 255, 255, ${opacityPerVisit})`,
+                          pointerEvents: 'none',
+                          zIndex: 4,
+                        }}
+                      />
+                    ));
+                  })()}
                 </div>
               );
             })
