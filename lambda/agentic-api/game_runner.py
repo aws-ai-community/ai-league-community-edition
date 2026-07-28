@@ -16,6 +16,7 @@ Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9, 5.10, 9.1, 9.2, 9.3, 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Set, Tuple
 
 from challenge_grader import grade_response
@@ -531,6 +532,7 @@ def run_game_session_v2(
     user_prompt: str = "",
     invoke_payload: Dict[str, Any] = None,
     pathfinding_tokens: int = 0,
+    time_limit: int = 0,
 ) -> Dict[str, Any]:
     """Run a game session with AgentCore Runtime invocations and incremental flush.
 
@@ -574,6 +576,7 @@ def run_game_session_v2(
     collected_keys: Set[str] = set()
     reached_treasure = False
     status = "completed"
+    game_start_time = time.time()
 
     # Emit initial events matching reference app pattern
     player_start = map_data.get("playerStart")
@@ -610,6 +613,12 @@ def run_game_session_v2(
 
     for step_idx, pos in enumerate(navigation_path):
         r, c = pos[0], pos[1]
+
+        # Time limit check — end game if elapsed time exceeds limit
+        if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+            status = "time_up"
+            logger.info("Time limit reached (%.1fs > %ds) at step %d", time.time() - game_start_time, time_limit, step_idx)
+            break
 
         # Off-grid step = instant game over
         if r < 0 or r >= rows or c < 0 or c >= cols:
@@ -749,6 +758,11 @@ def run_game_session_v2(
                     db_flush_fn(session_id, game_events, list(consumed_tiles), "in_progress")
 
                     # Invoke AgentCore for answer
+                    # Check time before invoking agent
+                    if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                        status = "time_up"
+                        break
+
                     try:
                         challenge_payload = {
                             **(invoke_payload or {}),
@@ -765,6 +779,11 @@ def run_game_session_v2(
                     except AgentCoreTimeoutError:
                         logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                         answer = ""
+
+                    # Check time after invocation returns — discard result if over
+                    if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                        status = "time_up"
+                        break
 
                     is_correct = grade_response(answer, expected, strategy, cell,
                                                 guardrail_id=(invoke_payload or {}).get("guardrail_id"),
@@ -835,6 +854,11 @@ def run_game_session_v2(
                 # Flush BEFORE invoking agent — frontend sees question while waiting
                 db_flush_fn(session_id, game_events, list(consumed_tiles), "in_progress")
 
+                # Check time before invoking agent
+                if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                    status = "time_up"
+                    break
+
                 # Invoke AgentCore for answer
                 try:
                     challenge_payload = {
@@ -852,6 +876,11 @@ def run_game_session_v2(
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on key challenge at (%d,%d)", r, c)
                     answer = ""
+
+                # Check time after invocation returns — discard result if over
+                if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                    status = "time_up"
+                    break
 
                 is_correct = grade_response(answer, expected, strategy, cell,
                                             guardrail_id=(invoke_payload or {}).get("guardrail_id"),
@@ -931,6 +960,11 @@ def run_game_session_v2(
                 # Flush BEFORE invoking agent — frontend sees question while waiting
                 db_flush_fn(session_id, game_events, list(consumed_tiles), "in_progress")
 
+                # Check time before invoking agent
+                if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                    status = "time_up"
+                    break
+
                 # Invoke AgentCore for answer
                 try:
                     challenge_payload = {
@@ -948,6 +982,11 @@ def run_game_session_v2(
                 except AgentCoreTimeoutError:
                     logger.warning("AgentCore timeout on challenge at (%d,%d)", r, c)
                     answer = ""
+
+                # Check time after invocation returns — discard result if over
+                if time_limit > 0 and (time.time() - game_start_time) > time_limit:
+                    status = "time_up"
+                    break
 
                 is_correct = grade_response(answer, expected, strategy, cell,
                                             guardrail_id=(invoke_payload or {}).get("guardrail_id"),
