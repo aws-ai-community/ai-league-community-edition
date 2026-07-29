@@ -2,6 +2,10 @@
 
 A full-stack web application for AWS AI League participants to practice and collaborate outside of official AWS events. Built with CloudScape Design System, AWS CDK, Amazon Cognito, AppSync GraphQL, and a serverless backend.
 
+**Join the AWS AI Community on Discord** - https://discord.com/invite/FrEUMsZrAZ
+**Join the AWS AI Community on AWS Builder Center** -https://builder.aws.com/connect/space/7148b02a-ef8c-3a67-97c9-53be6bd54999/ai-community
+**Visit the AWS AI Community Blog** - https://blog.awsaicommunity.org/
+
 ## Limitations
 
 The solution only runs in **us-east-1**
