@@ -12,7 +12,7 @@
     "@aws-sdk/lib-dynamodb": "3.1056.0"
   },
   "devDependencies": {
-    "@types/aws-lambda": "8.10.161",
+    "@types/aws-lambda": "8.10.162",
     "typescript": "6.0.3"
   }
 }
