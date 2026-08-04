@@ -4,6 +4,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     ignore:
       # brace-expansion 5.0.9 is required to fix GHSA-3jxr-9vmj-r5cp and GHSA-mh99-v99m-4gvg,
       # but jest@30.4.2 and ts-jest@29.4.11 pin minimatch which transitively locks
@@ -21,8 +22,10 @@ updates:
     directory: "/frontend"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
 
   - package-ecosystem: "pip"
     directory: "/lambda/agent-runtime"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 3
