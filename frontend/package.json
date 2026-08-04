@@ -13,9 +13,9 @@
     "@cloudscape-design/components": "3.0.1301",
     "@cloudscape-design/global-styles": "1.0.59",
     "amazon-cognito-identity-js": "6.3.20",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "react-router-dom": "7.16.0"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
