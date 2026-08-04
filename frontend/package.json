@@ -24,7 +24,7 @@
     "@types/estree": "1.0.9",
     "@types/react": "19.2.15",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-react": "6.0.5",
     "fast-check": "^4.8.0",
     "jsdom": "^29.1.1",
     "typescript": "6.0.3",
