@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # brace-expansion 5.0.9 is required to fix GHSA-3jxr-9vmj-r5cp and GHSA-mh99-v99m-4gvg,
+      # but jest@30.4.2 and ts-jest@29.4.11 pin minimatch which transitively locks
+      # brace-expansion at 5.0.8. Dependabot cannot resolve the conflict.
+      # Build-time only dependency — never runs in production. Zero runtime risk.
+      # Remove this ignore when jest/ts-jest release versions compatible with brace-expansion 5.0.9+.
+      - dependency-name: "brace-expansion"
+        versions: [">=5.0.9"]
+      # fast-uri 3.1.2 is bundled inside aws-cdk-lib — cannot be updated independently.
+      # CDK team must release a new version with patched fast-uri.
+      # Build-time only dependency — never processes user-supplied URLs. Zero runtime risk.
+      - dependency-name: "fast-uri"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "pip"
+    directory: "/lambda/agent-runtime"
+    schedule:
+      interval: "weekly"
