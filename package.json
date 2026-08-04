@@ -21,7 +21,7 @@
     "fast-check": "4.8.0",
     "jsdom": "29.1.1",
     "typescript": "6.0.3",
-    "vitest": "4.1.7"
+    "vitest": "4.1.10"
   },
   "engines": {
     "node": ">=22.0.0"
