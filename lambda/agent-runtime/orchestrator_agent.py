@@ -658,8 +658,8 @@ async def invoke_agent(request: InvocationRequest):
         return {"response": complete_response}
 
     except Exception as e:
-        logger.error(f"Invocation error: {e}")
-        return {"error": str(e)}
+        logger.error(f"Invocation error: {e}", exc_info=True)
+        return {"error": "An internal error occurred. Please try again."}
 
 
 @fastapi_app.get("/ping")

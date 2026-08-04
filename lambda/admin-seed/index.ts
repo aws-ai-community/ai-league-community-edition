@@ -35,26 +35,44 @@ function generateSecurePassword(): string {
   const special = "!@#$%^&*()-_=+[]{}|;:,.<>?";
   const allChars = uppercase + lowercase + digits + special;
 
+  /**
+   * Unbiased random index selection using rejection sampling.
+   * Discards values that would introduce modulo bias.
+   */
+  function unbiasedIndex(charset: string): number {
+    const max = Math.floor(256 / charset.length) * charset.length;
+    let value: number;
+    do {
+      value = randomBytes(1)[0];
+    } while (value >= max);
+    return value % charset.length;
+  }
+
   // Ensure at least one character from each required category
   const required = [
-    uppercase[randomBytes(1)[0] % uppercase.length],
-    lowercase[randomBytes(1)[0] % lowercase.length],
-    digits[randomBytes(1)[0] % digits.length],
-    special[randomBytes(1)[0] % special.length],
+    uppercase[unbiasedIndex(uppercase)],
+    lowercase[unbiasedIndex(lowercase)],
+    digits[unbiasedIndex(digits)],
+    special[unbiasedIndex(special)],
   ];
 
   // Fill remaining characters (16 total for strong password)
   const remaining: string[] = [];
-  const bytes = randomBytes(12);
   for (let i = 0; i < 12; i++) {
-    remaining.push(allChars[bytes[i] % allChars.length]);
+    remaining.push(allChars[unbiasedIndex(allChars)]);
   }
 
-  // Shuffle all characters together using Fisher-Yates
+  // Shuffle all characters together using Fisher-Yates with unbiased indices
   const password = [...required, ...remaining];
-  const shuffleBytes = randomBytes(password.length);
   for (let i = password.length - 1; i > 0; i--) {
-    const j = shuffleBytes[i] % (i + 1);
+    // Generate unbiased index in range [0, i]
+    const range = i + 1;
+    const maxUnbiased = Math.floor(256 / range) * range;
+    let value: number;
+    do {
+      value = randomBytes(1)[0];
+    } while (value >= maxUnbiased);
+    const j = value % range;
     [password[i], password[j]] = [password[j], password[i]];
   }
 

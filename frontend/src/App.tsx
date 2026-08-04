@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router';
 import AppLayout from '@cloudscape-design/components/app-layout';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
