@@ -1,0 +1,126 @@
+name: E2E Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.E2E_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.E2E_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: CDK Bootstrap
+        run: npx cdk bootstrap aws://${{ secrets.E2E_AWS_ACCOUNT_ID }}/us-east-1
+
+      - name: Deploy stack
+        run: |
+          npx cdk deploy --all --require-approval never \
+            --outputs-file cdk-outputs.json
+        timeout-minutes: 30
+
+      - name: Extract outputs
+        id: outputs
+        run: |
+          URL=$(jq -r '.AiLeagueCommunityEditionStack.UserInterfaceDomainName' cdk-outputs.json)
+          PASSWORD=$(jq -r '.AiLeagueCommunityEditionStack.AdminPassword' cdk-outputs.json)
+          echo "base_url=https://$URL" >> $GITHUB_OUTPUT
+          echo "admin_password=$PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Wait for CloudFront propagation
+        run: sleep 30
+
+      - name: Run Playwright tests
+        env:
+          BASE_URL: ${{ steps.outputs.outputs.base_url }}
+          ADMIN_EMAIL: admin@aileague.community
+          ADMIN_PASSWORD: ${{ steps.outputs.outputs.admin_password }}
+          AWS_REGION: us-east-1
+        run: npx playwright test --config e2e/playwright.config.ts
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+
+      - name: Cleanup VPC dependencies
+        if: always()
+        run: |
+          # SageMaker creates security groups (e.g., for EFS/NFS) inside the CDK VPC
+          # that aren't managed by CloudFormation. Delete them before stack destroy.
+          VPC_ID=$(aws cloudformation describe-stack-resources \
+            --stack-name AiLeagueCommunityEditionStack \
+            --logical-resource-id SageMakerVpcB0F5038C \
+            --query 'StackResources[0].PhysicalResourceId' --output text 2>/dev/null || echo "")
+          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+            echo "Cleaning up security groups in VPC: $VPC_ID"
+            SG_IDS=$(aws ec2 describe-security-groups \
+              --filters Name=vpc-id,Values=$VPC_ID \
+              --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text)
+            for sg in $SG_IDS; do
+              echo "Deleting security group: $sg"
+              aws ec2 delete-security-group --group-id $sg || true
+            done
+            # Also delete any lingering ENIs (from SageMaker EFS mounts)
+            ENI_IDS=$(aws ec2 describe-network-interfaces \
+              --filters Name=vpc-id,Values=$VPC_ID \
+              --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
+            for eni in $ENI_IDS; do
+              echo "Deleting network interface: $eni"
+              aws ec2 detach-network-interface --attachment-id \
+                $(aws ec2 describe-network-interfaces --network-interface-ids $eni \
+                  --query 'NetworkInterfaces[0].Attachment.AttachmentId' --output text) 2>/dev/null || true
+              sleep 2
+              aws ec2 delete-network-interface --network-interface-id $eni || true
+            done
+          fi
+
+      - name: Destroy stack
+        if: always()
+        run: npx cdk destroy --all --force
+        timeout-minutes: 30
+
+      - name: Verify destroy succeeded
+        if: always()
+        run: |
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name AiLeagueCommunityEditionStack \
+            --query 'Stacks[0].StackStatus' --output text 2>&1 || echo "DELETE_COMPLETE")
+          if [[ "$STATUS" != *"does not exist"* && "$STATUS" != "DELETE_COMPLETE" ]]; then
+            echo "ERROR: Stack still exists with status: $STATUS"
+            exit 1
+          fi

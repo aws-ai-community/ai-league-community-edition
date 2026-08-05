@@ -369,7 +369,15 @@ cd lambda/agentic-api && python3 -m pytest tests/ -v
 
 # Run CDK infrastructure tests
 cd infrastructure && npm test
+
+# Run end-to-end tests (requires deployed stack)
+BASE_URL=https://your-cloudfront-url.cloudfront.net \
+ADMIN_EMAIL=admin@aileague.community \
+ADMIN_PASSWORD=your-password \
+npm run e2e
 ```
+
+For full e2e testing documentation (local setup, CI configuration, GitHub Secrets), see [`e2e/README.md`](e2e/README.md).
 
 ## Tear Down
 
