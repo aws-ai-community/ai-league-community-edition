@@ -55,6 +55,9 @@ jobs:
         run: |
           URL=$(jq -r '.AiLeagueCommunityEditionStack.UserInterfaceDomainName' cdk-outputs.json)
           PASSWORD=$(jq -r '.AiLeagueCommunityEditionStack.AdminPassword' cdk-outputs.json)
+          # Ensure URL has https:// prefix but not doubled
+          URL="${URL#https://}"
+          URL="${URL#http://}"
           echo "base_url=https://$URL" >> $GITHUB_OUTPUT
           echo "admin_password=$PASSWORD" >> $GITHUB_OUTPUT
 
@@ -81,32 +84,71 @@ jobs:
       - name: Cleanup VPC dependencies
         if: always()
         run: |
-          # SageMaker creates security groups (e.g., for EFS/NFS) inside the CDK VPC
-          # that aren't managed by CloudFormation. Delete them before stack destroy.
+          # SageMaker creates EFS file systems, mount targets, security groups, and ENIs
+          # inside the CDK VPC that aren't managed by CloudFormation.
+          # These must be deleted before cdk destroy can remove the VPC/subnets.
           VPC_ID=$(aws cloudformation describe-stack-resources \
             --stack-name AiLeagueCommunityEditionStack \
             --logical-resource-id SageMakerVpcB0F5038C \
             --query 'StackResources[0].PhysicalResourceId' --output text 2>/dev/null || echo "")
+
           if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
-            echo "Cleaning up security groups in VPC: $VPC_ID"
+            echo "Cleaning up VPC: $VPC_ID"
+
+            # 1. Delete EFS mount targets in subnets (these create ENIs that block subnet deletion)
+            SUBNET_IDS=$(aws ec2 describe-subnets \
+              --filters Name=vpc-id,Values=$VPC_ID \
+              --query 'Subnets[].SubnetId' --output text)
+            for subnet in $SUBNET_IDS; do
+              MT_IDS=$(aws efs describe-mount-targets \
+                --query "MountTargets[?SubnetId=='${subnet}'].MountTargetId" --output text 2>/dev/null || echo "")
+              for mt in $MT_IDS; do
+                echo "Deleting EFS mount target: $mt"
+                aws efs delete-mount-target --mount-target-id $mt || true
+              done
+            done
+
+            # 2. Wait for mount targets to be deleted (they take a few seconds)
+            if [ -n "$SUBNET_IDS" ]; then
+              echo "Waiting for mount targets to be removed..."
+              sleep 30
+            fi
+
+            # 3. Delete EFS file systems that were in this VPC
+            FS_IDS=$(aws efs describe-file-systems \
+              --query 'FileSystems[].FileSystemId' --output text 2>/dev/null || echo "")
+            for fs in $FS_IDS; do
+              # Check if this EFS had mount targets in our VPC
+              MT_COUNT=$(aws efs describe-mount-targets --file-system-id $fs \
+                --query 'length(MountTargets)' --output text 2>/dev/null || echo "0")
+              if [ "$MT_COUNT" = "0" ]; then
+                echo "Deleting EFS file system: $fs"
+                aws efs delete-file-system --file-system-id $fs || true
+              fi
+            done
+
+            # 4. Delete all ENIs in the VPC
+            ENI_IDS=$(aws ec2 describe-network-interfaces \
+              --filters Name=vpc-id,Values=$VPC_ID \
+              --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
+            for eni in $ENI_IDS; do
+              echo "Deleting network interface: $eni"
+              ATTACH_ID=$(aws ec2 describe-network-interfaces --network-interface-ids $eni \
+                --query 'NetworkInterfaces[0].Attachment.AttachmentId' --output text 2>/dev/null || echo "None")
+              if [ "$ATTACH_ID" != "None" ] && [ -n "$ATTACH_ID" ]; then
+                aws ec2 detach-network-interface --attachment-id $ATTACH_ID --force 2>/dev/null || true
+                sleep 5
+              fi
+              aws ec2 delete-network-interface --network-interface-id $eni || true
+            done
+
+            # 5. Delete non-default security groups
             SG_IDS=$(aws ec2 describe-security-groups \
               --filters Name=vpc-id,Values=$VPC_ID \
               --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text)
             for sg in $SG_IDS; do
               echo "Deleting security group: $sg"
               aws ec2 delete-security-group --group-id $sg || true
-            done
-            # Also delete any lingering ENIs (from SageMaker EFS mounts)
-            ENI_IDS=$(aws ec2 describe-network-interfaces \
-              --filters Name=vpc-id,Values=$VPC_ID \
-              --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
-            for eni in $ENI_IDS; do
-              echo "Deleting network interface: $eni"
-              aws ec2 detach-network-interface --attachment-id \
-                $(aws ec2 describe-network-interfaces --network-interface-ids $eni \
-                  --query 'NetworkInterfaces[0].Attachment.AttachmentId' --output text) 2>/dev/null || true
-              sleep 2
-              aws ec2 delete-network-interface --network-interface-id $eni || true
             done
           fi
 
