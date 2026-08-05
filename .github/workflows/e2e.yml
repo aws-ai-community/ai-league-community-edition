@@ -1,12 +1,12 @@
 name: E2E Tests
 
 on:
-  pull_request:
   push:
     branches: [main]
 
 permissions:
   contents: read
+  id-token: write  # Required for GitHub OIDC → AWS
 
 jobs:
   e2e:
@@ -36,12 +36,13 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.E2E_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.E2E_AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.E2E_AWS_ROLE_ARN }}
           aws-region: us-east-1
 
       - name: CDK Bootstrap
-        run: npx cdk bootstrap aws://${{ secrets.E2E_AWS_ACCOUNT_ID }}/us-east-1
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          npx cdk bootstrap aws://$ACCOUNT_ID/us-east-1
 
       - name: Deploy stack
         run: |
