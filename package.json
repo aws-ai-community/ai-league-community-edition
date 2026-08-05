@@ -11,15 +11,19 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "test": "vitest run",
+    "e2e": "npx playwright test --config e2e/playwright.config.ts",
     "deploy": "cd infrastructure && npx cdk deploy --all",
     "seed-config": "python3 scripts/seed-config.py",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
+    "@aws-sdk/client-lambda": "^3.1102.0",
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "fast-check": "4.8.0",
     "jsdom": "29.1.1",
+    "jszip": "^3.10.1",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
   },
