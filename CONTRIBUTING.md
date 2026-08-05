@@ -88,12 +88,32 @@ npx vitest
 
 - Write unit tests for new components and handlers
 - Write property-based tests for validation logic and data transformations
+- **Any new user-facing functionality must include appropriate Playwright e2e tests in `e2e/tests/`**
 - Use `vitest` as the test runner for frontend/TypeScript
 - Use `pytest` + `hypothesis` for Python backend property tests
 - Use `fast-check` for TypeScript property-based tests (minimum 100 iterations)
 - Use `@testing-library/react` for component tests
+- Use Playwright for end-to-end tests against a deployed stack
 - Mock external dependencies (AWS SDK, fetch, localStorage)
 - All property tests must use fast-check/hypothesis generated values (no `Math.random()` inside properties)
+
+#### Running E2E Tests Locally
+
+```bash
+# Requires a deployed stack and valid credentials
+BASE_URL=https://your-cloudfront-url.cloudfront.net \
+ADMIN_EMAIL=admin@aileague.community \
+ADMIN_PASSWORD=your-password \
+npm run e2e
+```
+
+The `e2e/` directory structure:
+- `e2e/tests/` — test specs (one file per feature area)
+- `e2e/pages/` — Page Object Models for each page
+- `e2e/fixtures/` — auth setup and shared fixtures
+- `e2e/helpers/` — utility functions (AWS SDK, wait helpers)
+
+See [`e2e/README.md`](e2e/README.md) for full documentation.
 
 ### Commits
 
@@ -136,10 +156,12 @@ npx vitest
 ## Pull Request Process
 
 1. Ensure all tests pass: `npm test` and `cd lambda/agentic-api && python3 -m pytest tests/`
-2. Ensure TypeScript compiles without errors in all workspaces
-3. Ensure the CDK synthesizes: `npx cdk synth --quiet`
-4. Update documentation if your change affects the user experience or deployment
-5. Submit a pull request with a clear description of the changes
+2. Ensure e2e tests pass for any user-facing changes: `npm run e2e` (or verify in CI)
+3. Ensure TypeScript compiles without errors in all workspaces
+4. Ensure the CDK synthesizes: `npx cdk synth --quiet`
+5. Update documentation if your change affects the user experience or deployment
+6. Submit a pull request with a clear description of the changes
+7. PRs adding new features must include corresponding Playwright e2e tests in `e2e/tests/`
 
 ### PR Description Template
 
@@ -169,7 +191,8 @@ When adding a new feature:
 2. Update the design document if architecture changes
 3. Add the feature implementation
 4. Add tests (unit + property-based where applicable)
-5. Update the README if user-facing behavior changes
+5. Add Playwright e2e tests in `e2e/tests/` for any user-facing functionality
+6. Update the README if user-facing behavior changes
 
 ## Reporting Issues
 
