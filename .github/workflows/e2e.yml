@@ -154,7 +154,75 @@ jobs:
 
       - name: Destroy stack
         if: always()
-        run: npx cdk destroy --all --force
+        run: |
+          # First attempt — this deletes the SageMaker domain but may fail on VPC/subnet
+          # because SageMaker ENIs linger after domain deletion
+          npx cdk destroy --all --force || true
+
+          # Check if it failed
+          STATUS=$(aws cloudformation describe-stacks \
+            --stack-name AiLeagueCommunityEditionStack \
+            --query 'Stacks[0].StackStatus' --output text 2>&1 || echo "gone")
+
+          if [[ "$STATUS" == "DELETE_FAILED" ]]; then
+            echo "First destroy failed — cleaning up SageMaker ENIs and retrying"
+
+            # After domain deletion, SageMaker ENIs take time to become detachable
+            echo "Waiting 60s for SageMaker ENIs to release..."
+            sleep 60
+
+            # Find and delete ALL remaining resources in the VPC
+            VPC_ID=$(aws cloudformation describe-stack-resources \
+              --stack-name AiLeagueCommunityEditionStack \
+              --logical-resource-id SageMakerVpcB0F5038C \
+              --query 'StackResources[0].PhysicalResourceId' --output text 2>/dev/null || echo "")
+
+            if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+              echo "Cleaning VPC: $VPC_ID"
+
+              # Force-detach and delete all ENIs (including SageMaker "[DO NOT DELETE]" ones)
+              for attempt in 1 2 3; do
+                ENI_IDS=$(aws ec2 describe-network-interfaces \
+                  --filters Name=vpc-id,Values=$VPC_ID \
+                  --query 'NetworkInterfaces[].NetworkInterfaceId' --output text 2>/dev/null || echo "")
+                if [ -z "$ENI_IDS" ]; then
+                  echo "No ENIs remaining in VPC"
+                  break
+                fi
+                echo "Attempt $attempt: Found ENIs: $ENI_IDS"
+                for eni in $ENI_IDS; do
+                  ATTACH_ID=$(aws ec2 describe-network-interfaces --network-interface-ids $eni \
+                    --query 'NetworkInterfaces[0].Attachment.AttachmentId' --output text 2>/dev/null || echo "None")
+                  if [ "$ATTACH_ID" != "None" ] && [ -n "$ATTACH_ID" ]; then
+                    echo "Force-detaching ENI $eni (attachment: $ATTACH_ID)"
+                    aws ec2 detach-network-interface --attachment-id $ATTACH_ID --force 2>/dev/null || true
+                  fi
+                done
+                echo "Waiting 15s for detachment..."
+                sleep 15
+                for eni in $ENI_IDS; do
+                  echo "Deleting ENI: $eni"
+                  aws ec2 delete-network-interface --network-interface-id $eni 2>/dev/null || true
+                done
+                sleep 5
+              done
+
+              # Delete non-default security groups
+              SG_IDS=$(aws ec2 describe-security-groups \
+                --filters Name=vpc-id,Values=$VPC_ID \
+                --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text 2>/dev/null || echo "")
+              for sg in $SG_IDS; do
+                echo "Deleting security group: $sg"
+                aws ec2 delete-security-group --group-id $sg 2>/dev/null || true
+              done
+            fi
+
+            # Retry full destroy
+            echo "Retrying stack deletion..."
+            aws cloudformation delete-stack --stack-name AiLeagueCommunityEditionStack
+            aws cloudformation wait stack-delete-complete \
+              --stack-name AiLeagueCommunityEditionStack || true
+          fi
         timeout-minutes: 30
 
       - name: Verify destroy succeeded
