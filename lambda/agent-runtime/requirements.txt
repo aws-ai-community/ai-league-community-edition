@@ -2,7 +2,7 @@ strands-agents[sagemaker]
 strands-agents-tools[agent_core_browser]
 playwright
 nest-asyncio
-bedrock-agentcore==1.19.0
+bedrock-agentcore==1.21.0
 mcp
 boto3
 fastapi
