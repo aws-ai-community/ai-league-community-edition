@@ -23,7 +23,7 @@ export class ConfigurationPage {
   }
 
   async verifyIdeStatus(status: 'Running' | 'Starting' | 'Stopping' | 'Stopped') {
-    await expect(this.page.getByText(status)).toBeVisible({ timeout: 180_000 });
+    await expect(this.page.getByText(status)).toBeVisible({ timeout: 300_000 });
   }
 
   async selectSchemaModel(modelLabel: string) {

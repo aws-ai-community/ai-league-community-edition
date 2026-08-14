@@ -926,6 +926,7 @@ def handler(event, context):
         'sagemaker:DeleteApp',
         'sagemaker:DescribeApp',
         'sagemaker:CreatePresignedDomainUrl',
+        'sagemaker:AddTags',
       ],
       resources: ['*'],
     }));
@@ -1711,6 +1712,7 @@ def handler(event, context):
       restApiName: 'ai-league-community-profile-api',
       description: 'API Gateway for AI League Community Edition profile management',
       deploy: true,
+      cloudWatchRole: false,  // Prevent auto-created CW role that gets orphaned on stack destroy
       deployOptions: {
         stageName: 'api',
       },

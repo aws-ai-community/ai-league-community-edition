@@ -93,8 +93,8 @@ def handler(event, context):
     expect(gateway).toBeTruthy();
     const gatewayId = gateway.gatewayId;
 
-    // Poll for the target to appear (schema generation is async, up to 60s)
-    const deadline = Date.now() + 60_000;
+    // Poll for the target to appear (schema generation is async, up to 120s on cold stacks)
+    const deadline = Date.now() + 120_000;
     let targetFound = false;
     while (Date.now() < deadline) {
       const targetsJson = execSync(

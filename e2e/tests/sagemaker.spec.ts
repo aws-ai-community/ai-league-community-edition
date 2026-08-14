@@ -5,7 +5,7 @@ import { TIMEOUTS } from '../helpers/wait.helper';
 
 test.describe.serial('SageMaker IDE', () => {
   test('start IDE from configuration page — status transitions to Starting then Running', async ({ page }) => {
-    test.setTimeout(240_000); // IDE start takes up to 3 minutes
+    test.setTimeout(360_000); // IDE start takes up to 5 minutes on cold stacks
     const configPage = new ConfigurationPage(page);
 
     await configPage.goto();
