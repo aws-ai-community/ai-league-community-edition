@@ -19,7 +19,7 @@
   "devDependencies": {
     "@aws-sdk/client-lambda": "^3.1102.0",
     "@playwright/test": "^1.62.1",
-    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
     "fast-check": "4.8.0",
     "jsdom": "29.1.1",
