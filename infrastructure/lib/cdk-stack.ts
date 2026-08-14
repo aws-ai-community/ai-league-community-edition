@@ -27,6 +27,9 @@ export class CdkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // Tag all resources for identification (helps find orphaned resources from e2e test runs)
+    cdk.Tags.of(this).add('Environment', 'AILeagueE2eTest');
+
     // Cognito User Pool with password policy and self-sign-up disabled
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'ai-league-community-user-pool',
@@ -1711,6 +1714,7 @@ def handler(event, context):
       restApiName: 'ai-league-community-profile-api',
       description: 'API Gateway for AI League Community Edition profile management',
       deploy: true,
+      cloudWatchRole: false,  // Prevent auto-created CW role that gets orphaned on stack destroy
       deployOptions: {
         stageName: 'api',
       },
