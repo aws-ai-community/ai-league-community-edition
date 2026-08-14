@@ -27,9 +27,6 @@ export class CdkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Tag all resources for identification (helps find orphaned resources from e2e test runs)
-    cdk.Tags.of(this).add('Environment', 'AILeagueE2eTest');
-
     // Cognito User Pool with password policy and self-sign-up disabled
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: 'ai-league-community-user-pool',
@@ -929,6 +926,7 @@ def handler(event, context):
         'sagemaker:DeleteApp',
         'sagemaker:DescribeApp',
         'sagemaker:CreatePresignedDomainUrl',
+        'sagemaker:AddTags',
       ],
       resources: ['*'],
     }));

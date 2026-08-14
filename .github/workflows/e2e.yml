@@ -73,6 +73,7 @@ jobs:
       - name: Deploy stack
         run: |
           npx cdk deploy --all --require-approval never \
+            --tags Environment=AILeagueE2eTest \
             --outputs-file cdk-outputs.json
         timeout-minutes: 30
 
