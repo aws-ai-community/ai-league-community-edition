@@ -165,18 +165,11 @@ export class AgentBuilderPage {
   // --- Attach to Supervisor ---
 
   async attachSubAgentToSupervisor(name: string) {
-    // Cloudscape Toggle: wrapper span contains both the checkbox and label text
-    // Find the wrapper that has both our text AND a checkbox inside it
-    const wrapper = this.page.locator('[class*="wrapper"]')
-      .filter({ hasText: name })
-      .filter({ has: this.page.locator('input[type="checkbox"]') });
-    await wrapper.first().locator('input[type="checkbox"]').check();
+    // Each Toggle checkbox has an accessible name via aria-labelledby containing the agent name
+    await this.page.getByRole('checkbox', { name: new RegExp(name) }).check();
   }
 
   async attachLambdaToolToSupervisor(name: string) {
-    const wrapper = this.page.locator('[class*="wrapper"]')
-      .filter({ hasText: name })
-      .filter({ has: this.page.locator('input[type="checkbox"]') });
-    await wrapper.first().locator('input[type="checkbox"]').check();
+    await this.page.getByRole('checkbox', { name: new RegExp(name) }).check();
   }
 }
