@@ -10,8 +10,9 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@cloudscape-design/components": "3.0.1301",
-    "@cloudscape-design/global-styles": "1.0.59",
+    "@cloudscape-design/component-toolkit": "^1.0.0-beta.178",
+    "@cloudscape-design/components": "3.0.1343",
+    "@cloudscape-design/global-styles": "^1.0.66",
     "amazon-cognito-identity-js": "6.3.20",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
