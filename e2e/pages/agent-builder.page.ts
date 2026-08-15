@@ -165,22 +165,18 @@ export class AgentBuilderPage {
   // --- Attach to Supervisor ---
 
   async attachSubAgentToSupervisor(name: string) {
-    // Tool Attachments section has toggles for sub-agents
-    const toggle = this.page.locator('label, span').filter({ hasText: name }).locator('..').locator('input[type="checkbox"]');
-    if (await toggle.count() > 0) {
-      await toggle.first().check();
-    } else {
-      // Fallback: click the toggle text directly
-      await this.page.getByText(name, { exact: false }).click();
-    }
+    // Cloudscape Toggle: wrapper span contains both the checkbox and label text
+    // Find the wrapper that has both our text AND a checkbox inside it
+    const wrapper = this.page.locator('[class*="wrapper"]')
+      .filter({ hasText: name })
+      .filter({ has: this.page.locator('input[type="checkbox"]') });
+    await wrapper.first().locator('input[type="checkbox"]').check();
   }
 
   async attachLambdaToolToSupervisor(name: string) {
-    const toggle = this.page.locator('label, span').filter({ hasText: name }).locator('..').locator('input[type="checkbox"]');
-    if (await toggle.count() > 0) {
-      await toggle.first().check();
-    } else {
-      await this.page.getByText(name, { exact: false }).click();
-    }
+    const wrapper = this.page.locator('[class*="wrapper"]')
+      .filter({ hasText: name })
+      .filter({ has: this.page.locator('input[type="checkbox"]') });
+    await wrapper.first().locator('input[type="checkbox"]').check();
   }
 }
