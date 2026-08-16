@@ -165,22 +165,11 @@ export class AgentBuilderPage {
   // --- Attach to Supervisor ---
 
   async attachSubAgentToSupervisor(name: string) {
-    // Tool Attachments section has toggles for sub-agents
-    const toggle = this.page.locator('label, span').filter({ hasText: name }).locator('..').locator('input[type="checkbox"]');
-    if (await toggle.count() > 0) {
-      await toggle.first().check();
-    } else {
-      // Fallback: click the toggle text directly
-      await this.page.getByText(name, { exact: false }).click();
-    }
+    // Each Toggle checkbox has an accessible name via aria-labelledby containing the agent name
+    await this.page.getByRole('checkbox', { name: new RegExp(name) }).check();
   }
 
   async attachLambdaToolToSupervisor(name: string) {
-    const toggle = this.page.locator('label, span').filter({ hasText: name }).locator('..').locator('input[type="checkbox"]');
-    if (await toggle.count() > 0) {
-      await toggle.first().check();
-    } else {
-      await this.page.getByText(name, { exact: false }).click();
-    }
+    await this.page.getByRole('checkbox', { name: new RegExp(name) }).check();
   }
 }
