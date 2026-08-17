@@ -16,7 +16,7 @@
     "@types/jest": "^30.0.0",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "22.19.19",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.12",
     "ts-node": "10.9.2",
