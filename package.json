@@ -17,7 +17,7 @@
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
-    "@aws-sdk/client-lambda": "^3.1102.0",
+    "@aws-sdk/client-lambda": "^3.1115.0",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
