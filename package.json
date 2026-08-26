@@ -22,7 +22,7 @@
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
     "fast-check": "4.8.0",
-    "jsdom": "29.1.1",
+    "jsdom": "30.0.1",
     "jszip": "^3.10.1",
     "typescript": "6.0.3",
     "vitest": "4.1.10"
