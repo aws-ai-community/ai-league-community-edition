@@ -10,7 +10,7 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@cloudscape-design/component-toolkit": "^1.0.0-beta.178",
+    "@cloudscape-design/component-toolkit": "^1.0.0-beta.181",
     "@cloudscape-design/components": "3.0.1345",
     "@cloudscape-design/global-styles": "^1.0.66",
     "amazon-cognito-identity-js": "6.3.20",
