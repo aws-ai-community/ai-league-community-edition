@@ -68,7 +68,7 @@ See [estimated-costs.md](estimated-costs.md) for a detailed breakdown by service
   - Tile consumption synced with avatar movement during replay animation
   - Avatar moves onto wall tile before game-over
   - Planned path overlay shown before replay starts
-- **Model Selection** — Amazon Nova (Micro, Lite, Pro), DeepSeek, Meta Llama, Mistral, Anthropic Claude
+- **Model Selection** — Amazon Nova Lite 2, Anthropic Claude Haiku
   - Claude models marked with ⚠️ "not covered by AWS credits" warning
   - Default: Amazon Nova Lite (covered by AWS credits)
 - **Lambda Tool Registration** — Register existing Lambda ARNs as agent tools
@@ -172,6 +172,7 @@ Custom Resource Lambdas (admin seeding, container build trigger, runtime update,
 6. [AWS CDK CLI](https://docs.aws.amazon.com/cdk/latest/guide/getting_started.html) installed (`npm install -g aws-cdk`)
 7. [Docker](https://docs.docker.com/get-docker/) installed (used for frontend bundling during CDK synthesis)
 8. (For fine-tuning) Request quota increase for "Maximum number of concurrent model customization serverless jobs per Region" in us-east-1
+9. Service Quota to run Amazon Nova Lite or Claude Haiku models within your AWS account
 
 ## Deploy
 
