@@ -45,6 +45,18 @@ def grade_response(
     Returns:
         True if the response is correct, False otherwise.
     """
+    # "any_of:<base_strategy>" — expected_answer holds several acceptable answers
+    # separated by "|||"; the response passes if ANY alternative matches under the
+    # base strategy. Lets a challenge accept BOTH a short/token-reduced form and the
+    # full form (mirrors the real game's LLM-as-judge, which accepts either).
+    if grading_strategy.startswith("any_of:"):
+        base_strategy = grading_strategy[len("any_of:"):]
+        for alt in expected_answer.split("|||"):
+            if grade_response(response, alt, base_strategy, challenge_type,
+                              guardrail_id=guardrail_id, question=question):
+                return True
+        return False
+
     if grading_strategy == "exact_match":
         return _exact_match(response, expected_answer)
     elif grading_strategy == "contains_match":

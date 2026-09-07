@@ -274,16 +274,17 @@ export default function GameplayPage() {
     if (mapOption.type === 'predefined') {
       const idx = parseInt(mapOption.value.replace('predefined-', ''), 10);
       const pm: PredefinedMap = PREDEFINED_MAPS[idx];
+      const pmLives = pm.lives ?? 5;
       setMapData({
         grid: pm.grid,
         startRow: pm.startRow,
         startCol: pm.startCol,
         timeLimit: pm.time,
-        lives: 5,
+        lives: pmLives,
       });
       setChampionPos([pm.startRow, pm.startCol]);
-      setLives(5);
-      setMaxLives(5);
+      setLives(pmLives);
+      setMaxLives(pmLives);
       setTimer(pm.time);
       setScore(0);
     } else {
