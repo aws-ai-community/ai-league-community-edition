@@ -21,7 +21,7 @@
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
-    "fast-check": "4.8.0",
+    "fast-check": "4.9.0",
     "jsdom": "30.0.1",
     "jszip": "^3.10.1",
     "typescript": "6.0.3",
