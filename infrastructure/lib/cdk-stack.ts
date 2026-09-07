@@ -323,6 +323,7 @@ export class CdkStack extends cdk.Stack {
       effect: iam.Effect.ALLOW,
       actions: [
         'bedrock-agentcore:CreateEvent', 'bedrock-agentcore:GetEvent',
+        'bedrock-agentcore:ListEvents',
         'bedrock-agentcore:GetMemory', 'bedrock-agentcore:GetMemoryRecord',
         'bedrock-agentcore:ListMemoryRecords', 'bedrock-agentcore:RetrieveMemoryRecords',
         'bedrock-agentcore:DeleteMemoryRecord', 'bedrock-agentcore:CreateMemory',
