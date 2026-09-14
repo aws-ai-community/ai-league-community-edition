@@ -9,7 +9,8 @@
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "3.1109.0",
     "@aws-sdk/client-dynamodb": "3.1111.0",
-    "@aws-sdk/lib-dynamodb": "3.1056.0"
+    "@aws-sdk/lib-dynamodb": "3.1056.0",
+    "boto3": "^0.0.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.162",

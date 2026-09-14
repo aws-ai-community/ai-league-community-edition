@@ -29,5 +29,8 @@
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "hypothesis": "^1.1766.0"
   }
 }
