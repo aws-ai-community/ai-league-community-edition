@@ -10,17 +10,8 @@
     "test": "vitest --run"
   },
   "dependencies": {
-<<<<<<< HEAD
-<<<<<<< HEAD
-    "@cloudscape-design/component-toolkit": "^1.0.0-beta.183",
-=======
     "@cloudscape-design/component-toolkit": "^1.0.0-beta.184",
->>>>>>> origin/dependabot/npm_and_yarn/cloudscape-design/component-toolkit-1.0.0-beta.184
-    "@cloudscape-design/components": "3.0.1345",
-=======
-    "@cloudscape-design/component-toolkit": "^1.0.0-beta.178",
     "@cloudscape-design/components": "3.0.1347",
->>>>>>> origin/dependabot/npm_and_yarn/frontend/cloudscape-design/components-3.0.1347
     "@cloudscape-design/global-styles": "^1.0.66",
     "amazon-cognito-identity-js": "6.3.20",
     "react": "^19.2.8",
