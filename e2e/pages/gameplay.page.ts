@@ -8,7 +8,11 @@ export class GameplayPage {
 
   async goto() {
     await this.page.goto('/gameplay');
-    await expect(this.page.getByText('Game Play')).toBeVisible({ timeout: 15_000 });
+    // Scope to the page's h1 heading. Plain getByText('Game Play') also matches the
+    // nav link of the same name, which trips Playwright strict mode intermittently.
+    await expect(
+      this.page.getByRole('heading', { name: 'Game Play', level: 1 }),
+    ).toBeVisible({ timeout: 15_000 });
   }
 
   async selectMap(label: string) {
@@ -63,9 +67,17 @@ export class GameplayPage {
   }
 
   async downloadBattleLog(): Promise<object> {
+    const button = this.page.getByRole('button', { name: 'Download Battle Log' });
+    // Ensure the button is present and interactable before clicking. The download
+    // handler no-ops if the game-event buffer hasn't populated yet, so wait for it
+    // to be enabled and give the modal a brief moment to finish storing events.
+    await expect(button).toBeEnabled({ timeout: 15_000 });
+    await this.page.waitForTimeout(1000);
     const [download] = await Promise.all([
-      this.page.waitForEvent('download'),
-      this.page.getByRole('button', { name: 'Download Battle Log' }).click(),
+      // The battle log can be large; allow more time than the 15s default for the
+      // browser to serialize and emit the download.
+      this.page.waitForEvent('download', { timeout: 30_000 }),
+      button.click(),
     ]);
     const savePath = join(tmpdir(), `battle-log-${Date.now()}.json`);
     await download.saveAs(savePath);

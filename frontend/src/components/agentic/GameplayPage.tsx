@@ -193,6 +193,9 @@ export default function GameplayPage() {
   const [scoreSummary, setScoreSummary] = useState<GameEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  // True once the game-event buffer (allGameEventsRef) holds events available for
+  // the battle log download. Gates the Download button so it never no-ops.
+  const [battleLogReady, setBattleLogReady] = useState(false);
 
   // Model warm-up state
   const { state: warmUpState, startWarmup, cancel: cancelWarmupHook, proceedAnyway } = useModelWarmup();
@@ -574,6 +577,10 @@ export default function GameplayPage() {
           // Store complete events for battle log download (only up to ScoreSummary)
           const summaryIdx = events.findIndex((e: GameEvent) => e.type === 'ScoreSummary');
           allGameEventsRef.current = summaryIdx >= 0 ? events.slice(0, summaryIdx + 1) : events;
+          // Enable the battle log download only once we actually have events to write.
+          if (allGameEventsRef.current.length > 0) {
+            setBattleLogReady(true);
+          }
 
           // Update score/lives with backend's authoritative data
           if (summaryIdx >= 0) {
@@ -615,6 +622,9 @@ export default function GameplayPage() {
     if (!selectedMap || !mapData) return;
 
     setIsStarting(true);
+    // Fresh game: clear any battle log left over from a previous session.
+    setBattleLogReady(false);
+    allGameEventsRef.current = [];
 
     try {
       const mapOption = mapOptions.find((m) => m.value === selectedMap.value);
@@ -873,8 +883,10 @@ export default function GameplayPage() {
     setScoreSummary(null);
     setShowGameOverModal(false);
     setSubmitSuccess(false);
+    setBattleLogReady(false);
     setSessionId(null);
     replayQueueRef.current = [];
+    allGameEventsRef.current = [];
     gameEndedRef.current = false;
     processedEventCountRef.current = 0;
     if (mapData) {
@@ -1268,7 +1280,11 @@ export default function GameplayPage() {
               <Button variant="link" onClick={handlePlayAgain}>
                 Play Again
               </Button>
-              <Button variant="normal" onClick={handleDownloadBattleLog}>
+              <Button
+                variant="normal"
+                onClick={handleDownloadBattleLog}
+                disabled={!battleLogReady}
+              >
                 Download Battle Log
               </Button>
               {!submitSuccess && (

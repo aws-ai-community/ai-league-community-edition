@@ -10,8 +10,8 @@
     "test": "vitest --run"
   },
   "dependencies": {
-    "@cloudscape-design/component-toolkit": "^1.0.0-beta.183",
-    "@cloudscape-design/components": "3.0.1345",
+    "@cloudscape-design/component-toolkit": "^1.0.0-beta.184",
+    "@cloudscape-design/components": "3.0.1347",
     "@cloudscape-design/global-styles": "^1.0.66",
     "amazon-cognito-identity-js": "6.3.20",
     "react": "^19.2.8",
@@ -21,15 +21,15 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.6",
+    "@testing-library/user-event": "^14.6.7",
     "@types/estree": "1.0.9",
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.5",
-    "@vitejs/plugin-react": "6.0.2",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "6.1.0",
     "fast-check": "^4.9.0",
     "jsdom": "^30.0.1",
-    "vite": "8.2.2",
+    "vite": "8.3.0",
     "typescript": "7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   }
 }
