@@ -60,7 +60,7 @@ test.describe.serial('Gameplay', () => {
     await gameplayPage.verifyGameOverModal();
   });
 
-  test('score is greater than zero', async ({ page }) => {
+  test('score is a valid non-negative number', async ({ page }) => {
     test.setTimeout(TIMEOUTS.GAME_COMPLETION + 60_000);
 
     await gameplayPage.goto();
@@ -73,9 +73,11 @@ test.describe.serial('Gameplay', () => {
     await gameplayPage.waitForGameEnd(TIMEOUTS.GAME_COMPLETION);
     await gameplayPage.verifyGameOverModal();
 
-    // Verify the score is a positive number (structural assertion, not exact value)
+    // Verify the score is a valid non-negative number (structural assertion, not exact value).
+    // The agent is a live LLM and can legitimately finish a game with 0 points, so we assert
+    // >= 0 rather than > 0 to avoid flaking on non-deterministic gameplay.
     const score = await gameplayPage.getScore();
-    expect(score).toBeGreaterThan(0);
+    expect(score).toBeGreaterThanOrEqual(0);
   });
 
   test('combat log has events including InputPrompt and MoveSpace', async ({ page }) => {

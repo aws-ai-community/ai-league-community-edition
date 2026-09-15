@@ -25,9 +25,10 @@ test.describe.serial('Leaderboard and Submission', () => {
     await gameplayPage.waitForGameEnd(TIMEOUTS.GAME_COMPLETION);
     await gameplayPage.verifyGameOverModal();
 
-    // Capture the score (non-deterministic, just verify > 0)
+    // Capture the score. The agent is a live LLM and can legitimately finish with 0 points,
+    // so assert >= 0 (valid non-negative number) rather than > 0 to avoid non-deterministic flakes.
     submittedScore = await gameplayPage.getScore();
-    expect(submittedScore).toBeGreaterThan(0);
+    expect(submittedScore).toBeGreaterThanOrEqual(0);
 
     // Submit to leaderboard and verify success message
     await gameplayPage.submitToLeaderboard();
