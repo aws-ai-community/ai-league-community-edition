@@ -8,7 +8,7 @@ for authentication with MCP servers that authenticate using AWS IAM.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import Generator
+from typing import Any, Generator
 
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -16,7 +16,6 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from mcp.client.streamable_http import (
-    GetSessionIdCallback,
     StreamableHTTPTransport,
     streamablehttp_client,
 )
@@ -123,7 +122,7 @@ async def streamablehttp_client_with_sigv4(
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
         MemoryObjectSendStream[SessionMessage],
-        GetSessionIdCallback,
+        Any,
     ],
     None,
 ]:
