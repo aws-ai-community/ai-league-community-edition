@@ -11,7 +11,11 @@
   },
   "dependencies": {
 <<<<<<< HEAD
+<<<<<<< HEAD
     "@cloudscape-design/component-toolkit": "^1.0.0-beta.183",
+=======
+    "@cloudscape-design/component-toolkit": "^1.0.0-beta.184",
+>>>>>>> origin/dependabot/npm_and_yarn/cloudscape-design/component-toolkit-1.0.0-beta.184
     "@cloudscape-design/components": "3.0.1345",
 =======
     "@cloudscape-design/component-toolkit": "^1.0.0-beta.178",
