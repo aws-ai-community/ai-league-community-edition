@@ -5,8 +5,9 @@ export class AgentBuilderPage {
 
   async goto() {
     await this.page.goto('/agent-builder');
-    // Wait for loading to complete — the page shows "Loading agent configuration..." then renders
-    await expect(this.page.getByText('Agent Builder')).toBeVisible({ timeout: 15_000 });
+    // Wait for loading to complete — the page shows "Loading agent configuration..." then renders.
+    // Target the page heading specifically (getByText matched both the nav link and the h1).
+    await expect(this.page.getByRole('heading', { name: 'Agent Builder' })).toBeVisible({ timeout: 15_000 });
     // Wait for the supervisor section to appear (means data loaded)
     await expect(this.page.getByText('Supervisor Agent').first()).toBeVisible({ timeout: 30_000 });
   }

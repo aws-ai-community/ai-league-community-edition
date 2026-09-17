@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { AgentBuilderPage } from '../pages/agent-builder.page';
-import { updateLambdaToolCode } from '../helpers/aws.helper';
+import { updateLambdaToolCode, waitForSchemaRegeneration, triggerSchemaRegeneration } from '../helpers/aws.helper';
 import { TIMEOUTS } from '../helpers/wait.helper';
 
 test.describe.serial('Agent Builder', () => {
@@ -46,7 +46,7 @@ test.describe.serial('Agent Builder', () => {
   });
 
   test('update Lambda tool code via AWS SDK regenerates schema', async () => {
-    test.setTimeout(120_000); // Schema generation can take up to 60s
+    test.setTimeout(240_000); // Lambda update + schema regeneration can take 2-3 min on cold stacks
     const functionName = `AgentCoreGatewayTool-${lambdaToolName}`;
 
     const updatedCode = `
@@ -70,9 +70,18 @@ def handler(event, context):
     // Update the Lambda function code directly via AWS SDK
     await updateLambdaToolCode(functionName, updatedCode);
 
-    // Verify the code update took effect
+    // Wait for the Lambda to become Active again after the code update.
+    // UpdateFunctionCode transitions the function to Pending; the gateway
+    // schema won't regenerate until it returns to Active.
     const { LambdaClient, GetFunctionCommand } = await import('@aws-sdk/client-lambda');
     const client = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+    const activeDeadline = Date.now() + 60_000;
+    while (Date.now() < activeDeadline) {
+      const state = (await client.send(new GetFunctionCommand({ FunctionName: functionName })))
+        .Configuration?.State;
+      if (state === 'Active') break;
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
     const result = await client.send(new GetFunctionCommand({ FunctionName: functionName }));
     expect(result.Configuration?.State).toBe('Active');
     expect(result.Configuration?.LastModified).toBeTruthy();
@@ -93,20 +102,23 @@ def handler(event, context):
     expect(gateway).toBeTruthy();
     const gatewayId = gateway.gatewayId;
 
+    // Trigger schema regeneration directly instead of waiting for the async
+    // CloudTrail -> EventBridge -> Schema Generator chain, which can take
+    // several minutes to deliver and makes this test non-deterministic.
+    await triggerSchemaRegeneration(functionName);
+
     // Poll for the target to appear (schema generation is async, up to 120s on cold stacks)
-    const deadline = Date.now() + 120_000;
-    let targetFound = false;
-    while (Date.now() < deadline) {
-      const targetsJson = execSync(
-        `aws bedrock-agentcore-control list-gateway-targets --gateway-identifier ${gatewayId} --region ${region} --output json`,
-        { encoding: 'utf-8', timeout: 30_000 },
-      );
-      const targets = JSON.parse(targetsJson);
-      targetFound = targets.items?.some((t: { name?: string }) => t.name === functionName) ?? false;
-      if (targetFound) break;
-      await new Promise((r) => setTimeout(r, 5_000));
-    }
-    expect(targetFound).toBe(true);
+    await waitForSchemaRegeneration(
+      async () => {
+        const targetsJson = execSync(
+          `aws bedrock-agentcore-control list-gateway-targets --gateway-identifier ${gatewayId} --region ${region} --output json`,
+          { encoding: 'utf-8', timeout: 30_000 },
+        );
+        const targets = JSON.parse(targetsJson);
+        return targets.items?.some((t: { name?: string }) => t.name === functionName) ?? false;
+      },
+      { timeoutMs: 120_000, intervalMs: 3_000 },
+    );
   });
 
   test('delete Lambda tool removed from list', async () => {
