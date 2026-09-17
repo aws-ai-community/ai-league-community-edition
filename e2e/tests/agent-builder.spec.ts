@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { AgentBuilderPage } from '../pages/agent-builder.page';
-import { updateLambdaToolCode, waitForSchemaRegeneration } from '../helpers/aws.helper';
+import { updateLambdaToolCode, waitForSchemaRegeneration, triggerSchemaRegeneration } from '../helpers/aws.helper';
 import { TIMEOUTS } from '../helpers/wait.helper';
 
 test.describe.serial('Agent Builder', () => {
@@ -101,6 +101,11 @@ def handler(event, context):
     const gateway = gateways.items?.find((g: { name?: string }) => g.name === 'communityGateway');
     expect(gateway).toBeTruthy();
     const gatewayId = gateway.gatewayId;
+
+    // Trigger schema regeneration directly instead of waiting for the async
+    // CloudTrail -> EventBridge -> Schema Generator chain, which can take
+    // several minutes to deliver and makes this test non-deterministic.
+    await triggerSchemaRegeneration(functionName);
 
     // Poll for the target to appear (schema generation is async, up to 120s on cold stacks)
     await waitForSchemaRegeneration(

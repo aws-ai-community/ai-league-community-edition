@@ -50,6 +50,36 @@ export async function updateLambdaToolCode(
 }
 
 /**
+ * Directly triggers gateway-schema regeneration for a tool by invoking the
+ * agentic-api resolver Lambda with the same synthetic payload the production
+ * Schema Generator Lambda uses (see infrastructure LambdaCodeUpdateRule).
+ *
+ * In production, schema regeneration is triggered asynchronously via
+ * CloudTrail -> EventBridge -> Schema Generator Lambda after UpdateFunctionCode.
+ * That CloudTrail delivery can take several minutes, which is far too slow and
+ * non-deterministic for an e2e test. Invoking the resolver directly performs the
+ * exact same regeneration work without waiting for CloudTrail, making the test
+ * deterministic. `functionName` is the full `AgentCoreGatewayTool-<name>`.
+ */
+export async function triggerSchemaRegeneration(functionName: string): Promise<void> {
+  const { LambdaClient, InvokeCommand } = await import('@aws-sdk/client-lambda');
+  const client = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+  const toolName = functionName.replace('AgentCoreGatewayTool-', '');
+  const payload = {
+    info: { fieldName: 'RegenerateToolSchema' },
+    identity: { claims: { 'cognito:username': 'system' } },
+    arguments: { name: toolName },
+  };
+  await client.send(
+    new InvokeCommand({
+      FunctionName: 'ai-league-agentic-api',
+      InvocationType: 'RequestResponse',
+      Payload: Buffer.from(JSON.stringify(payload)),
+    }),
+  );
+}
+
+/**
  * Polls a verification function until it returns true or the timeout is reached.
  * Useful for verifying the MCP Gateway target schema has been regenerated
  * after a Lambda code update (schema regeneration timeout: 60s).
