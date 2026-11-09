@@ -107,6 +107,47 @@ INVOCATION_TIMEOUT_SECONDS = 90
 
 
 # ---------------------------------------------------------------------------
+# Movement helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_start_position(map_data: Dict[str, Any]) -> Tuple[int, int]:
+    """Return the champion's start (row, col).
+
+    Uses playerStart when present, otherwise scans the grid for the 'start'
+    tile, falling back to (0, 0).
+    """
+    player_start = map_data.get("playerStart")
+    if not isinstance(player_start, dict) or "row" not in player_start or "col" not in player_start:
+        player_start = None
+        for r, row in enumerate(map_data.get("grid", [])):
+            for c, cell in enumerate(row):
+                if cell == "start":
+                    player_start = {"row": r, "col": c}
+                    break
+            else:
+                continue
+            break
+    if not player_start:
+        return (0, 0)
+    try:
+        return (int(player_start["row"]), int(player_start["col"]))
+    except (TypeError, ValueError):
+        return (0, 0)
+
+
+def _is_valid_step(prev: Tuple[int, int], pos: Tuple[int, int]) -> bool:
+    """A step is valid if it stays in place or moves to an orthogonally adjacent cell.
+
+    Coordinate and label paths are taken verbatim from the agent response, so
+    without this check the champion could jump over walls and challenges (#130).
+    Staying in place is allowed because it grants no advantage and paths often
+    repeat the start position as their first entry.
+    """
+    return abs(pos[0] - prev[0]) + abs(pos[1] - prev[1]) <= 1
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -152,9 +193,17 @@ def run_game_session(
     collected_keys: Set[str] = set()  # Stores door tile IDs that are unlocked (e.g., "c30")
     reached_treasure = False
     status = "completed"
+    prev_pos = _resolve_start_position(map_data)
 
     for pos in navigation_path:
         r, c = pos[0], pos[1]
+
+        # Non-adjacent step (teleport) = instant game over
+        if not _is_valid_step(prev_pos, (r, c)):
+            lives = 0
+            status = "game_over"
+            break
+        prev_pos = (r, c)
 
         # Off-grid step = instant game over
         if r < 0 or r >= rows or c < 0 or c >= cols:
@@ -579,24 +628,8 @@ def run_game_session_v2(
     game_start_time = time.time()
 
     # Emit initial events matching reference app pattern
-    player_start = map_data.get("playerStart")
-    if not isinstance(player_start, dict) or "row" not in player_start or "col" not in player_start:
-        # Scan grid for the 'start' tile
-        player_start = None
-        for r, row in enumerate(grid):
-            for c, cell in enumerate(row):
-                if cell == "start":
-                    player_start = {"row": r, "col": c}
-                    break
-            else:
-                continue
-            break
-    if not player_start:
-        player_start = {"row": 0, "col": 0}
-    try:
-        start_pos_event = {"row": int(player_start["row"]), "col": int(player_start["col"])}
-    except (TypeError, ValueError):
-        start_pos_event = {"row": 0, "col": 0}
+    start_pos = _resolve_start_position(map_data)
+    start_pos_event = {"row": start_pos[0], "col": start_pos[1]}
     # InputPrompt: shows the full navigation prompt (fixed + user) in the combat log
     game_events.append({
         "type": "InputPrompt",
@@ -611,6 +644,7 @@ def run_game_session_v2(
     })
     db_flush_fn(session_id, game_events, list(consumed_tiles), "playing")
 
+    prev_pos = start_pos
     for step_idx, pos in enumerate(navigation_path):
         r, c = pos[0], pos[1]
 
@@ -619,6 +653,14 @@ def run_game_session_v2(
             status = "time_up"
             logger.info("Time limit reached (%.1fs > %ds) at step %d", time.time() - game_start_time, time_limit, step_idx)
             break
+
+        # Non-adjacent step (teleport) = instant game over
+        if not _is_valid_step(prev_pos, (r, c)):
+            logger.warning("Invalid non-adjacent move %s -> %s at step %d", prev_pos, (r, c), step_idx)
+            lives = 0
+            status = "game_over"
+            break
+        prev_pos = (r, c)
 
         # Off-grid step = instant game over
         if r < 0 or r >= rows or c < 0 or c >= cols:
