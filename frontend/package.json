@@ -13,7 +13,7 @@
     "@cloudscape-design/component-toolkit": "^1.0.0-beta.184",
     "@cloudscape-design/components": "3.0.1347",
     "@cloudscape-design/global-styles": "^1.0.66",
-    "amazon-cognito-identity-js": "6.3.20",
+    "amazon-cognito-identity-js": "6.3.22",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0"
